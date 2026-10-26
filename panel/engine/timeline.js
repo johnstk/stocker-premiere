@@ -75,13 +75,15 @@ module.exports = (P) => {
       const diffs = [];
       // é mesmo o item colocado?
       let mesmo = null;
-      const idLido = await x.nodeIdOf(await it.getProjectItem());
-      if (idLido && found.nodeId) mesmo = idLido === String(found.nodeId);
-      else {
-        let mp = null;
-        try { mp = await P.ClipProjectItem.cast(await it.getProjectItem()).getMediaFilePath(); } catch (e) { mp = null; }
-        if (mp && found.mediaPath) mesmo = mp.normalize("NFC") === found.mediaPath.normalize("NFC");
-      }
+      try {
+        const pi = await it.getProjectItem();
+        const idLido = await x.nodeIdOf(pi);
+        if (idLido && found.nodeId) mesmo = idLido === String(found.nodeId);
+        else {
+          const mp = await P.ClipProjectItem.cast(pi).getMediaFilePath();
+          if (mp && found.mediaPath) mesmo = mp.normalize("NFC") === found.mediaPath.normalize("NFC");
+        }
+      } catch (e) { diffs.push(`não consegui reler o item do clipe colocado: ${(e && e.message) || e}`); }
       if (mesmo === false) diffs.push("o clipe que começa nesse tempo não é o item pedido");
       if (input.sourceIn !== undefined && Math.abs(res.sourceIn - parseTime(input.sourceIn, tb)) > frame) diffs.push(`sourceIn ficou ${res.sourceIn}`);
       if (input.sourceOut !== undefined && Math.abs(res.sourceOut - parseTime(input.sourceOut, tb)) > frame) diffs.push(`sourceOut ficou ${res.sourceOut}`);
@@ -89,15 +91,18 @@ module.exports = (P) => {
         const esperado = parseTime(input.sourceOut, tb) - parseTime(input.sourceIn, tb);
         if (Math.abs((res.end - res.start) - esperado) > frame) diffs.push(`duração ficou ${roundDur(res.end - res.start)}s; esperado ${roundDur(esperado)}s`);
       }
-      // áudio
-      let temAudio = false;
-      try {
-        for (const a of await x.trackItems(seq, `A${(aIndex === -1 ? v.index : aIndex) + 1}`)) {
-          if (await startsAt(a.getStartTime())) { temAudio = true; break; }
-        }
-      } catch (e) { temAudio = false; }
-      if (aIndex === -1 && temAudio) diffs.push(`ficou áudio em A${v.index + 1} no tempo ${time}s`);
-      if (aIndex !== -1 && !temAudio) diffs.push(`não há clipe de áudio em A${aIndex + 1} no tempo ${time}s`);
+      // áudio: só confere o que foi pedido explicitamente
+      if (aIndex === -1 || typeof input.audioTrack === "string") {
+        const rot = `A${(aIndex === -1 ? v.index : aIndex) + 1}`;
+        let temAudio = false;
+        try {
+          for (const a of await x.trackItems(seq, rot)) {
+            if (await startsAt(a.getStartTime())) { temAudio = true; break; }
+          }
+        } catch (e) { temAudio = false; }
+        if (aIndex === -1 && temAudio) diffs.push(`ficou áudio em ${rot} no tempo ${time}s`);
+        if (aIndex !== -1 && !temAudio) diffs.push(`não há clipe de áudio em ${rot} no tempo ${time}s`);
+      }
       res.verificado = diffs.length === 0;
       if (diffs.length) res.diferenca = diffs.join("; ");
       return res;
