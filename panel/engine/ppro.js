@@ -20,7 +20,9 @@ module.exports = function makePpro(P) {
       return s;
     }
     const all = await p.getSequences();
-    const s = all.find((x) => x.name === name);
+    const iguais = all.filter((x) => x.name === name);
+    if (iguais.length > 1) throw new PonteError(ERR.BAD_INPUT, `Há ${iguais.length} sequências chamadas '${name}'. Renomeie para um nome único.`);
+    const s = iguais[0];
     if (!s) throw new PonteError(ERR.NOT_FOUND, `Sequência '${name}' não encontrada. Existem: ${all.map((x) => x.name).join(", ")}`);
     return s;
   }

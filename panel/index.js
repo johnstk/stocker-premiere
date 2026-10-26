@@ -22,18 +22,23 @@ function connect() {
   try { sock = new WebSocket(URL); } catch (e) { setStatus("erro: " + e.message, "bad"); later(); return; }
   ws = sock;
   let rejeitado = false;
+  let fila = Promise.resolve(); // chamadas em fila: uma de cada vez por socket
+  const tratar = async (m) => {
+    if (ws !== sock) return;
+    el("ultimo").textContent = m.tool + " …";
+    const reply = await engine.run(m.id, m.tool, m.input);
+    try { sock.send(JSON.stringify(reply)); } catch (e) { /* desconectou */ }
+    el("ultimo").textContent = m.tool + (reply.ok ? " ✓" : " ✗ " + reply.error.message);
+  };
   sock.onopen = () => { if (ws === sock) sock.send(JSON.stringify(proto.hello({ token: token(), panel: PANEL_VERSION, premiere: premiereVersion(), tools: engine.tools }))); };
-  sock.onmessage = async (ev) => {
+  sock.onmessage = (ev) => {
     if (ws !== sock) return;
     const m = proto.parse(ev.data);
     if (!m) return;
     if (m.type === "welcome") { setStatus("conectado", "ok"); return; }
     if (m.type === "rejected") { rejeitado = true; setStatus("recusado: " + m.reason, "bad"); return; }
     if (m.type === "call") {
-      el("ultimo").textContent = m.tool + " …";
-      const reply = await engine.run(m.id, m.tool, m.input);
-      try { sock.send(JSON.stringify(reply)); } catch (e) { /* desconectou */ }
-      el("ultimo").textContent = m.tool + (reply.ok ? " ✓" : " ✗ " + reply.error.message);
+      fila = fila.then(() => tratar(m)).catch(() => {});
     }
   };
   sock.onclose = () => {

@@ -17,8 +17,13 @@ async function runPlan(plan, callTool) {
   for (let i = 0; i < plan.steps.length; i++) {
     const s = plan.steps[i];
     const r = await callTool(s.tool, s.input);
-    resultados.push(r.ok ? { passo: i + 1, tool: s.tool, ok: true, data: r.data } : { passo: i + 1, tool: s.tool, ok: false, error: r.error });
-    if (!r.ok && plan.stopOnError) return { resultados, parou_em: i + 1 };
+    const naoVerificado = r.ok && r.data && r.data.verificado === false;
+    if (naoVerificado) {
+      resultados.push({ passo: i + 1, tool: s.tool, ok: false, verificado: false, data: r.data, error: { code: "nao_verificado", message: "A releitura não bateu: " + (r.data.diferenca || "sem detalhe") } });
+    } else {
+      resultados.push(r.ok ? { passo: i + 1, tool: s.tool, ok: true, data: r.data } : { passo: i + 1, tool: s.tool, ok: false, error: r.error });
+    }
+    if ((!r.ok || naoVerificado) && plan.stopOnError) return { resultados, parou_em: i + 1 };
   }
   return { resultados };
 }

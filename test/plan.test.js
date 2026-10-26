@@ -30,3 +30,25 @@ test("stopOnError:false segue até o fim", async () => {
   assert.equal(r.resultados.length, 2);
   assert.equal(r.parou_em, undefined);
 });
+
+test("verificado:false para o plano com stopOnError", async () => {
+  const plan = validatePlan({ steps: [{ tool: "pr_placeClip" }, { tool: "pr_addMarkers" }] }, ALLOWED);
+  const chamadas = [];
+  const r = await runPlan(plan, async (tool) => { chamadas.push(tool); return { ok: true, data: { verificado: false, diferenca: "fim 5 != 6" } }; });
+  assert.deepEqual(chamadas, ["pr_placeClip"]);
+  assert.equal(r.parou_em, 1);
+  assert.equal(r.resultados[0].ok, false);
+  assert.equal(r.resultados[0].verificado, false);
+  assert.equal(r.resultados[0].error.code, "nao_verificado");
+  assert.match(r.resultados[0].error.message, /A releitura não bateu: fim 5 != 6/);
+});
+
+test("verificado:false com stopOnError:false segue, mas registra", async () => {
+  const plan = validatePlan({ stopOnError: false, steps: [{ tool: "pr_placeClip" }, { tool: "pr_addMarkers" }] }, ALLOWED);
+  const r = await runPlan(plan, async (tool) => ({ ok: true, data: tool === "pr_placeClip" ? { verificado: false } : { verificado: true } }));
+  assert.equal(r.resultados.length, 2);
+  assert.equal(r.parou_em, undefined);
+  assert.equal(r.resultados[0].ok, false);
+  assert.match(r.resultados[0].error.message, /sem detalhe/);
+  assert.equal(r.resultados[1].ok, true);
+});

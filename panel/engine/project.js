@@ -61,6 +61,7 @@ module.exports = (P) => {
   async function pr_createSequence(input) {
     if (!input.name || !Array.isArray(input.fromItems) || !input.fromItems.length) throw new PonteError(ERR.BAD_INPUT, "name e fromItems são obrigatórios.");
     const p = await x.project();
+    if ((await p.getSequences()).some((s) => s.name === input.name)) throw new PonteError(ERR.BAD_INPUT, `Já existe uma sequência '${input.name}'. Escolha outro nome ou apague a antiga.`);
     const items = [];
     for (const ref of input.fromItems) items.push(P.ClipProjectItem.cast((await x.findProjectItem(p, ref))._item));
     const target = input.bin ? await ensureBin(p, input.bin) : await p.getInsertionBin();
@@ -86,6 +87,7 @@ module.exports = (P) => {
   async function pr_duplicateSequence(input) {
     const p = await x.project();
     const seq = await x.sequence(p, input.sequence);
+    if (input.name && (await p.getSequences()).some((s) => s.name === input.name)) throw new PonteError(ERR.BAD_INPUT, `Já existe uma sequência '${input.name}'. Escolha outro nome ou apague a antiga.`);
     const ids = async () => {
       const m = new Map();
       for (const s of await p.getSequences()) m.set(await x.nodeIdOf(await s.getProjectItem()), s);

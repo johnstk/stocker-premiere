@@ -20,7 +20,7 @@ module.exports = (P) => {
     const all = [];
     await x.walkItems(await p.getRootItem(), "", all, 0, input.depth ?? 20);
     const items = input.bin ? all.filter((i) => i.binPath === input.bin || i.binPath.startsWith(input.bin + "/")) : all;
-    const max = input.maxItems ?? 500;
+    const max = input.maxItems ?? 10000;
     const seqs = await p.getSequences();
     const active = await p.getActiveSequence();
     const sequences = [];
@@ -48,7 +48,7 @@ module.exports = (P) => {
     const from = input.from !== undefined ? parseTime(input.from, tb) : -Infinity;
     const to = input.to !== undefined ? parseTime(input.to, tb) : Infinity;
     let budget = input.maxClips ?? 300;
-    for (const kind of ["V", "A"]) {
+    externo: for (const kind of ["V", "A"]) {
       if ((kind === "V" && want === "audio") || (kind === "A" && want === "video")) continue;
       const n = kind === "V" ? await seq.getVideoTrackCount() : await seq.getAudioTrackCount();
       for (let i = 0; i < n; i++) {
@@ -66,6 +66,7 @@ module.exports = (P) => {
           clips.push({ clip: j + 1, name: await it.getName(), start, end, sourceIn: x.sec(await it.getInPoint()), sourceOut: x.sec(await it.getOutPoint()), disabled: await it.isDisabled(), mediaPath });
         }
         out.tracks.push({ name: label, type: kind === "V" ? "video" : "audio", clips });
+        if (out.truncado) break externo;
       }
     }
     const markers = await P.Markers.getMarkers(seq);

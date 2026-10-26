@@ -28,7 +28,7 @@ const TOOLS = [
   t("pr_getProjectState", "Ler projeto", "Lista bins e itens do projeto (nome, tipo bin/clip/sequence, bin, caminho da mídia, nodeId) e as sequências. Chame antes de citar itens.",
     { bin: { type: "string", description: "Só este bin (caminho)." }, depth: { type: "integer" }, maxItems: { type: "integer" } }, RO),
   t("pr_getSequenceState", "Ler sequência", "Lê fps, tamanho, duração, playhead, cada trilha com seus clipes (número 1-based, nome, início/fim, in/out da fonte, desligado, mídia) e os marcadores. Chame antes e depois de editar.",
-    { sequence, tracks: { type: "string", enum: ["all", "video", "audio"] }, from: time, to: time, maxClips: { type: "integer" } }, RO),
+    { sequence, tracks: { type: "string", enum: ["all", "video", "audio"] }, from: time, to: time, maxClips: { type: "integer" }, detail: { type: "boolean", description: "Inclui o caminho da mídia de cada clipe (já vem sempre)." } }, RO),
   t("pr_importFiles", "Importar mídia", "Importa arquivos (caminhos absolutos) para um bin (criado se faltar). Nunca apaga nada.",
     { paths: { type: "array", items: { type: "string" } }, bin: { type: "string" } }, ADD, ["paths"]),
   t("pr_createSequence", "Criar sequência", "Cria uma sequência a partir de itens (configuração do primeiro) e abre. empty:true tira os clipes, deixando a sequência vazia com a configuração certa.",
@@ -76,6 +76,6 @@ const INSTRUCTIONS = `stocker-premiere liga o Claude ao Premiere Pro do Jonathan
 5. Efeitos e parâmetros por matchName ('ADBE Motion', 'ADBE Lumetri') ou por índice '#n'. Não dependa do nome exibido: ele muda com o idioma do Premiere.
 6. Junte passos com pr_applyEditPlan; confira o visual com pr_exportFrame.
 7. pr_saveProject e pr_exportSequence só com pedido explícito do Jonathan (o export exige confirmado:true).
-8. Cada chamada é um passo de desfazer no Premiere. Diga o que mudou.`;
+8. Cada passo lógico vira um ou mais passos de desfazer no Premiere (colocar um trecho usa 3). Diga o que mudou.`;
 
 module.exports = { VERSION, TOOLS, TOOL_NAMES, EDIT_PLAN_ALLOWED, timeoutFor, INSTRUCTIONS };

@@ -25,3 +25,11 @@ test("comparação de token", () => {
   assert.ok(!tokensEqual("abc", "abd"));
   assert.ok(!tokensEqual("abc", undefined));
 });
+
+test("token existente com permissão frouxa volta a 0600", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "sp-token-"));
+  const a = loadOrCreateToken(dir);
+  fs.chmodSync(path.join(dir, "token"), 0o644);
+  assert.equal(loadOrCreateToken(dir), a);
+  assert.equal(fs.statSync(path.join(dir, "token")).mode & 0o777, 0o600);
+});

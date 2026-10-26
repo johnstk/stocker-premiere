@@ -10,7 +10,11 @@ function loadOrCreateToken(dir = defaultDir()) {
   const file = path.join(dir, "token");
   try {
     const t = fs.readFileSync(file, "utf8").trim();
-    if (/^[a-f0-9]{48}$/.test(t)) return t;
+    if (/^[a-f0-9]{48}$/.test(t)) {
+      try { fs.chmodSync(dir, 0o700); } catch (e) { /* melhor esforço */ }
+      fs.chmodSync(file, 0o600);
+      return t;
+    }
   } catch (e) { /* ainda não existe */ }
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   const t = crypto.randomBytes(24).toString("hex");
