@@ -26,16 +26,24 @@ module.exports = (P) => {
     if (!paths.length || !paths.every((s) => typeof s === "string" && s.startsWith("/"))) throw new PonteError(ERR.BAD_INPUT, "paths deve ser uma lista de caminhos absolutos.");
     const p = await x.project();
     const target = input.bin ? await ensureBin(p, input.bin) : await p.getRootItem();
+    const ids = async () => {
+      const all = [];
+      await x.walkItems(target, input.bin || "", all, 0, 0);
+      return all;
+    };
+    const antes = new Set((await ids()).map((i) => i.nodeId));
     const ok = await p.importFiles(paths, true, target, false);
     if (!ok) throw new PonteError(ERR.PREMIERE, "O Premiere recusou o import (importFiles devolveu false).");
-    const all = [];
-    await x.walkItems(target, input.bin || "", all, 0, 0);
-    return {
-      importados: paths.map((path) => {
-        const it = all.find((i) => i.mediaPath === path);
-        return it ? { path, nodeId: it.nodeId, name: it.name } : { path, erro: "não apareceu no bin depois do import" };
-      }),
-    };
+    const novos = (await ids()).filter((i) => !antes.has(i.nodeId) && i.mediaPath);
+    const usados = new Set();
+    const importados = paths.map((path) => {
+      const alvo = path.normalize("NFC");
+      const it = novos.find((i) => !usados.has(i.nodeId) && i.mediaPath.normalize("NFC") === alvo);
+      if (!it) return { path, erro: "nenhum item novo com esse caminho apareceu no bin depois do import" };
+      usados.add(it.nodeId);
+      return { path, nodeId: it.nodeId, name: it.name };
+    });
+    return { importados, verificado: importados.every((i) => !i.erro) };
   }
 
   async function removeAllTrackItems(p, seq) {
@@ -60,9 +68,19 @@ module.exports = (P) => {
     if (!seq) throw new PonteError(ERR.PREMIERE, "createSequenceFromMedia não devolveu a sequência.");
     if (input.empty) await removeAllTrackItems(p, seq);
     await p.openSequence(seq);
+    let verificado = true;
+    let diferenca;
+    if (input.empty) {
+      let sobraram = 0;
+      for (const kind of ["V", "A"]) {
+        const count = kind === "V" ? await seq.getVideoTrackCount() : await seq.getAudioTrackCount();
+        for (let i = 0; i < count; i++) sobraram += (await x.trackItems(seq, `${kind}${i + 1}`)).length;
+      }
+      if (sobraram) { verificado = false; diferenca = `a sequência deveria estar vazia, mas ficaram ${sobraram} clipe(s)`; }
+    }
     const tb = await seq.getTimebase();
     const fs = await seq.getFrameSize();
-    return { name: seq.name, nodeId: await x.nodeIdOf(await seq.getProjectItem()), fps: roundSec(fpsFromTimebase(tb)), width: fs.width, height: fs.height };
+    return { name: seq.name, nodeId: await x.nodeIdOf(await seq.getProjectItem()), fps: roundSec(fpsFromTimebase(tb)), width: fs.width, height: fs.height, verificado, ...(diferenca ? { diferenca } : {}) };
   }
 
   async function pr_duplicateSequence(input) {
@@ -83,7 +101,11 @@ module.exports = (P) => {
     const item = await copy.getProjectItem();
     x.tx(p, `stocker-premiere: renomear ${name}`, () => [item.createSetNameAction(name)]);
     if (input.open !== false) await p.openSequence(copy);
-    return { name, nodeId };
+    let lido = null;
+    try { lido = (await copy.getProjectItem()).name; } catch (e) { lido = null; }
+    const res = { name, nodeId, verificado: lido === name };
+    if (!res.verificado) res.diferenca = `o nome da cópia ficou '${lido}'; esperado '${name}'`;
+    return res;
   }
 
   async function pr_saveProject() {

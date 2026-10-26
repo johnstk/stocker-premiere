@@ -1,7 +1,9 @@
 "use strict";
-const { parseTime, alignSeconds } = require("../lib/tempo");
+const { parseTime, alignSeconds, fpsFromTimebase } = require("../lib/tempo");
 const { colorIndex } = require("../lib/cores");
 const { PonteError, ERR } = require("../lib/protocol");
+
+const roundDur = (n) => Math.round(n * 1000) / 1000;
 
 module.exports = (P) => {
   const x = require("./ppro")(P);
@@ -22,7 +24,7 @@ module.exports = (P) => {
     const p = await x.project();
     const seq = await x.sequence(p, input.sequence);
     const tb = await seq.getTimebase();
-    const frame = Number(tb) / 254016000000;
+    const frame = 1 / fpsFromTimebase(tb);
     const found = await x.findProjectItem(p, input.item);
     const clip = P.ClipProjectItem.cast(found._item);
     const v = x.parseTrack(input.track || "V1");
@@ -62,16 +64,40 @@ module.exports = (P) => {
       if (hasRange) x.tx(p, "stocker-premiere: restaurar in/out do item", () => [clip.createSetInOutPointsAction(origIn, origOut)]);
     }
     const items = await x.trackItems(seq, `V${v.index + 1}`);
+    const startsAt = (it) => it.then((t) => Math.abs(x.sec(t) - time) <= frame / 2 + 1e-6);
     for (let j = 0; j < items.length; j++) {
       const it = items[j];
-      if (Math.abs(x.sec(await it.getStartTime()) - time) > frame / 2 + 1e-6) continue;
+      if (!(await startsAt(it.getStartTime()))) continue;
       const res = {
         track: `V${v.index + 1}`, clip: j + 1, start: x.sec(await it.getStartTime()), end: x.sec(await it.getEndTime()),
         sourceIn: x.sec(await it.getInPoint()), sourceOut: x.sec(await it.getOutPoint()), audioTrack: aIndex === -1 ? null : `A${aIndex + 1}`,
       };
       const diffs = [];
+      // é mesmo o item colocado?
+      let mesmo = null;
+      const idLido = await x.nodeIdOf(await it.getProjectItem());
+      if (idLido && found.nodeId) mesmo = idLido === String(found.nodeId);
+      else {
+        let mp = null;
+        try { mp = await P.ClipProjectItem.cast(await it.getProjectItem()).getMediaFilePath(); } catch (e) { mp = null; }
+        if (mp && found.mediaPath) mesmo = mp.normalize("NFC") === found.mediaPath.normalize("NFC");
+      }
+      if (mesmo === false) diffs.push("o clipe que começa nesse tempo não é o item pedido");
       if (input.sourceIn !== undefined && Math.abs(res.sourceIn - parseTime(input.sourceIn, tb)) > frame) diffs.push(`sourceIn ficou ${res.sourceIn}`);
       if (input.sourceOut !== undefined && Math.abs(res.sourceOut - parseTime(input.sourceOut, tb)) > frame) diffs.push(`sourceOut ficou ${res.sourceOut}`);
+      if (input.sourceIn !== undefined && input.sourceOut !== undefined) {
+        const esperado = parseTime(input.sourceOut, tb) - parseTime(input.sourceIn, tb);
+        if (Math.abs((res.end - res.start) - esperado) > frame) diffs.push(`duração ficou ${roundDur(res.end - res.start)}s; esperado ${roundDur(esperado)}s`);
+      }
+      // áudio
+      let temAudio = false;
+      try {
+        for (const a of await x.trackItems(seq, `A${(aIndex === -1 ? v.index : aIndex) + 1}`)) {
+          if (await startsAt(a.getStartTime())) { temAudio = true; break; }
+        }
+      } catch (e) { temAudio = false; }
+      if (aIndex === -1 && temAudio) diffs.push(`ficou áudio em A${v.index + 1} no tempo ${time}s`);
+      if (aIndex !== -1 && !temAudio) diffs.push(`não há clipe de áudio em A${aIndex + 1} no tempo ${time}s`);
       res.verificado = diffs.length === 0;
       if (diffs.length) res.diferenca = diffs.join("; ");
       return res;
@@ -86,9 +112,15 @@ module.exports = (P) => {
     const alvo = [];
     for (const ref of input.clips) alvo.push(await x.findClip(seq, ref));
     x.tx(p, `stocker-premiere: ${input.enabled ? "ligar" : "desligar"} ${alvo.length} clipe(s)`, () => alvo.map((it) => it.createSetDisabledAction(!input.enabled)));
-    let certos = 0;
-    for (const ref of input.clips) if ((await (await x.findClip(seq, ref)).isDisabled()) === !input.enabled) certos++;
-    return { alterados: alvo.length, verificado: certos === alvo.length };
+    const erradas = [];
+    for (const ref of input.clips) {
+      let ok = false;
+      try { ok = (await (await x.findClip(seq, ref)).isDisabled()) === !input.enabled; } catch (e) { ok = false; }
+      if (!ok) erradas.push(JSON.stringify(ref));
+    }
+    const res = { alterados: alvo.length, verificado: erradas.length === 0 };
+    if (erradas.length) res.diferenca = `não ficaram ${input.enabled ? "ligados" : "desligados"}: ${erradas.join(", ")}`;
+    return res;
   }
 
   async function pr_addMarkers(input) {
@@ -98,22 +130,43 @@ module.exports = (P) => {
     const tb = await seq.getTimebase();
     const want = input.markers.map((m) => ({ t: alignSeconds(parseTime(m.time, tb), tb), dur: Number(m.duration) || 0, name: m.name || "", comment: m.comment || "", color: colorIndex(m.color) }));
     const markers = await P.Markers.getMarkers(seq);
+    const antes = [];
+    for (const m of await markers.getMarkers([])) antes.push({ t: x.sec(await m.getStart()), name: await m.getName() });
+    const existia = (w) => antes.some((a) => a.name === w.name && Math.abs(a.t - w.t) < 1e-3);
+    const novos = want.map((w) => !existia(w));
     x.tx(p, `stocker-premiere: ${want.length} marcador(es)`, () => want.map((w) =>
       markers.createAddMarkerAction(w.name, P.Marker.MARKER_TYPE_COMMENT, x.tickAligned(w.t, tb), x.tickSeconds(w.dur), w.comment)));
-    const after = await (await P.Markers.getMarkers(seq)).getMarkers([]);
+    const frame = 1 / fpsFromTimebase(tb);
+    const lerDepois = async () => {
+      const after = await (await P.Markers.getMarkers(seq)).getMarkers([]);
+      const lidos = [];
+      for (const m of after) lidos.push({ m, t: x.sec(await m.getStart()), name: await m.getName(), dur: x.sec(await m.getDuration()), cor: await m.getColorIndex() });
+      return lidos;
+    };
+    let lidos = await lerDepois();
+    const achar = (w) => lidos.find((l) => l.name === w.name && Math.abs(l.t - w.t) < 1e-3);
     const toColor = [];
-    let achados = 0;
-    for (const w of want) {
-      for (const m of after) {
-        if (Math.abs(x.sec(await m.getStart()) - w.t) < 1e-3 && (await m.getName()) === w.name) {
-          achados++;
-          if ((await m.getColorIndex()) !== w.color) toColor.push([m, w.color]);
-          break;
-        }
-      }
+    for (const w of want) { const l = achar(w); if (l && l.cor !== w.color) toColor.push([l.m, w.color]); }
+    if (toColor.length) {
+      x.tx(p, "stocker-premiere: cor dos marcadores", () => toColor.map(([m, c]) => m.createSetColorByIndexAction(c)));
+      lidos = await lerDepois();
     }
-    if (toColor.length) x.tx(p, "stocker-premiere: cor dos marcadores", () => toColor.map(([m, c]) => m.createSetColorByIndexAction(c)));
-    return { adicionados: achados, verificado: achados === want.length };
+    const diffs = [];
+    let adicionados = 0;
+    want.forEach((w, i) => {
+      const l = achar(w);
+      const rotulo = `'${w.name}' em ${w.t}s`;
+      if (!l) { diffs.push(`marcador ${rotulo} não apareceu`); return; }
+      const d = [];
+      if (Math.abs(l.dur - w.dur) > frame) d.push(`duração ${l.dur}s (pedido ${w.dur}s)`);
+      if (l.cor !== w.color) d.push(`cor índice ${l.cor} (pedido ${w.color})`);
+      if (!novos[i]) d.push("já existia um marcador igual antes");
+      if (d.length) diffs.push(`marcador ${rotulo}: ${d.join(", ")}`);
+      else adicionados++;
+    });
+    const res = { adicionados, verificado: diffs.length === 0 };
+    if (diffs.length) res.diferenca = diffs.join("; ");
+    return res;
   }
 
   return { pr_placeClip, pr_setClipEnabled, pr_addMarkers };
