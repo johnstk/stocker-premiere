@@ -5,6 +5,10 @@ const { PonteError, ERR } = require("../lib/protocol");
 const { matchNameIs } = require("../lib/params");
 
 const STATIC_KEYS = ["scale", "position", "rotation", "opacity"];
+function asArr(v) {
+  if (v && !Array.isArray(v) && typeof v === "object" && typeof v.x === "number" && typeof v.y === "number") return [v.x, v.y];
+  return v;
+}
 function near(a, b) {
   if (Array.isArray(a) && Array.isArray(b)) return a.length === b.length && a.every((v, i) => Math.abs(v - b[i]) <= 0.5);
   return typeof a === "number" && typeof b === "number" && Math.abs(a - b) <= 0.01;
@@ -12,6 +16,7 @@ function near(a, b) {
 
 module.exports = (P) => {
   const x = require("./ppro")(P);
+  const kfValue = (v) => (Array.isArray(v) && v.length === 2 && v.every(Number.isFinite) ? new P.PointF(v[0], v[1]) : v);
 
   async function propComponents(it, keys) {
     const comps = {};
@@ -67,14 +72,14 @@ module.exports = (P) => {
           const spec = CLIP_PROPS[key];
           const prm = comps[spec.component].getParam(spec.index);
           if (prm.isTimeVarying()) acts.push(prm.createSetTimeVaryingAction(false));
-          acts.push(prm.createSetValueAction(prm.createKeyframe(staticVals[key]), true));
+          acts.push(prm.createSetValueAction(prm.createKeyframe(kfValue(staticVals[key])), true));
         }
         for (const key of kfKeys) {
           const spec = CLIP_PROPS[key];
           const prm = comps[spec.component].getParam(spec.index);
           if (!prm.isTimeVarying()) acts.push(prm.createSetTimeVaryingAction(true));
           for (const k of kfPlan[key]) {
-            const kf = prm.createKeyframe(k.value);
+            const kf = prm.createKeyframe(kfValue(k.value));
             kf.position = P.TickTime.createWithTicks(String(k.tl - startTicks + inTicks)); // tempo da mídia
             acts.push(prm.createAddKeyframeAction(kf));
           }
@@ -85,7 +90,7 @@ module.exports = (P) => {
       const lido = {};
       for (const key of statics) {
         const spec = CLIP_PROPS[key];
-        const v = (await fresh[spec.component].getParam(spec.index).getValueAtTime(P.TickTime.createWithTicks(String(inTicks)))).value;
+        const v = asArr((await fresh[spec.component].getParam(spec.index).getValueAtTime(P.TickTime.createWithTicks(String(inTicks)))).value);
         lido[key] = key === "position" ? normalizedToPixels(v, size) : v;
       }
       const keyframes = {};
@@ -100,7 +105,7 @@ module.exports = (P) => {
           const t = sec3(k.tl);
           if (!list.some((l) => Math.abs(l - k.tl) <= frame)) { diferenca.push({ propriedade: key, tempo: t, problema: "keyframe ausente" }); continue; }
           keyframes[key].push(t);
-          let v = (await prm.getValueAtTime(P.TickTime.createWithTicks(String(k.tl - startTicks + inTicks)))).value;
+          let v = asArr((await prm.getValueAtTime(P.TickTime.createWithTicks(String(k.tl - startTicks + inTicks)))).value);
           if (key === "position") v = normalizedToPixels(v, size);
           if (!near(v, k.raw)) diferenca.push({ propriedade: key, tempo: t, esperado: k.raw, lido: v, problema: "valor diferente" });
         }
@@ -194,7 +199,7 @@ module.exports = (P) => {
         for (const [, idx, v] of pairs) {
           const prm = r.component.getParam(idx);
           if (prm.isTimeVarying()) acts.push(prm.createSetTimeVaryingAction(false));
-          acts.push(prm.createSetValueAction(prm.createKeyframe(v), true));
+          acts.push(prm.createSetValueAction(prm.createKeyframe(kfValue(v)), true));
         }
         return acts;
       });
@@ -202,9 +207,11 @@ module.exports = (P) => {
       const valores = {};
       let ok = true;
       for (const [k, idx, v] of pairs) {
-        const lido = (await fresh.getParam(idx).getValueAtTime(x.tickSeconds(0))).value;
+        const lido = asArr((await fresh.getParam(idx).getValueAtTime(x.tickSeconds(0))).value);
         valores[k] = lido;
-        if (JSON.stringify(lido) !== JSON.stringify(v) && !(typeof lido === "number" && Math.abs(lido - v) <= 0.01)) ok = false;
+        if (Array.isArray(v) && Array.isArray(lido)) { if (v.length !== lido.length || !v.every((n, i) => Math.abs(n - lido[i]) <= 0.001)) ok = false; }
+        else if (typeof lido === "number" && typeof v === "number") { if (Math.abs(lido - v) > 0.01) ok = false; }
+        else if (JSON.stringify(lido) !== JSON.stringify(v)) ok = false;
       }
       resultados.push({ clip: ref, efeito: mn, valores, verificado: ok });
     }

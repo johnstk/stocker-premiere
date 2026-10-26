@@ -71,3 +71,18 @@ test("pr_exportFrame injeta a pasta e anexa a imagem", async () => {
   assert.equal(c.content[1].type, "image");
   assert.equal(c.isError, false);
 });
+
+test("pr_exportFrame espera o PNG que o Premiere grava depois de responder", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "sp-frame-"));
+  const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 1, 2]);
+  const b = fakeBridge({
+    pr_exportFrame: (input) => {
+      const p = path.join(input.dir, "quadro-2.png");
+      setTimeout(() => fs.writeFileSync(p, bytes), 300);
+      return { ok: true, data: { path: p, time: 1 } };
+    },
+  });
+  const r = await createHandlers({ bridge: b, frameDir: dir }).callTool("pr_exportFrame", { time: 1 });
+  assert.equal(r.ok, true);
+  assert.equal(r.image.data, bytes.toString("base64"));
+});

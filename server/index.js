@@ -28,6 +28,18 @@ function locateFrame(dir, p) {
   return hit ? path.join(dir, hit) : null;
 }
 
+async function waitForFile(p, { interval = 100, max = 5000 } = {}) {
+  let last = -1;
+  for (let t = 0; t <= max; t += interval) {
+    let size = -1;
+    try { size = fs.statSync(p).size; } catch (e) { size = -1; }
+    if (size > 0 && size === last) return true;
+    last = size;
+    await new Promise((r) => setTimeout(r, interval));
+  }
+  return false;
+}
+
 function createHandlers({ bridge, startError = null, frameDir = FRAME_DIR }) {
   async function callTool(name, args) {
     if (startError) return { ok: false, error: { code: startError.code || ERR.BUSY, message: startError.message } };
@@ -51,6 +63,7 @@ function createHandlers({ bridge, startError = null, frameDir = FRAME_DIR }) {
     }
     const r = await bridge.send(name, args, { timeoutMs: timeoutFor(name) });
     if (r.ok && name === "pr_exportFrame") {
+      if (r.data && r.data.path) await waitForFile(r.data.path);
       const file = locateFrame(frameDir, r.data && r.data.path);
       if (!file) return { ok: false, error: { code: ERR.PREMIERE, message: `O Premiere disse que exportou o quadro, mas ${r.data && r.data.path} não existe.` } };
       r.data.path = file;
