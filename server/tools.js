@@ -1,7 +1,7 @@
 "use strict";
 const { MARKER_COLORS } = require("../panel/lib/cores");
 
-const VERSION = "0.1.0";
+const VERSION = "0.2.0";
 
 const sequence = { type: "string", description: "Nome da sequência; omita para a ativa." };
 const time = { type: ["number", "string"], description: 'Segundos na timeline (ou timecode "HH:MM:SS:FF").' };
@@ -56,6 +56,8 @@ const TOOLS = [
     { items: { type: "array", items: itemRef } }, RO, ["items"]),
   t("pr_setInputLut", "Aplicar LUT de entrada", "Aplica uma LUT de entrada (pelo ID lido com pr_getInputLut) a itens de mídia do projeto; lutId null tira a LUT.",
     { items: { type: "array", items: itemRef }, lutId: { type: ["string", "null"] } }, EDIT, ["items", "lutId"]),
+  t("pr_copyEffect", "Copiar efeito (colar atributos)", "Copia um efeito inteiro, todos os parâmetros, de um clipe para outros, como o Colar atributos do Premiere. Feito para a cor: o Lumetri leva a LUT de entrada, o look e os ajustes, que não atravessam o XML. from = clipe de origem {sequence, track, clip|time} (pode ser de outra sequência); clips = destinos na sequence. Se o destino não tem o efeito, ele é adicionado; se tem, é sobrescrito. effect padrão 'ADBE Lumetri'. Relê e devolve verificado, com os parâmetros que o Premiere recusou.",
+    { from: { type: "object", description: "Clipe de origem: {sequence, track, clip} ou {sequence, track, time}.", properties: { sequence, track: { type: "string" }, clip: { type: ["integer", "string"] }, time }, required: ["track"] }, sequence, clips, effect: { type: "string" }, occurrence: { type: "integer" } }, EDIT, ["from", "clips"]),
   t("pr_exportFrame", "Ver um quadro", "Renderiza o quadro num tempo (padrão: playhead) e devolve a imagem (PNG, 1280 px de largura por padrão). Use depois de mudanças visuais.",
     { sequence, time, width: { type: "integer" }, height: { type: "integer" } }, RO),
   t("pr_exportSequence", "Exportar vídeo", "Exporta a sequência com um preset (.epr): modo 'agora' (renderiza no Premiere) ou 'fila_ame' (manda para o Media Encoder). Só com aprovação explícita do Jonathan: exige confirmado:true.",
@@ -64,7 +66,7 @@ const TOOLS = [
 
 const TOOL_NAMES = new Set(TOOLS.map((x) => x.name));
 const EDIT_PLAN_ALLOWED = new Set(["pr_getProjectState", "pr_getSequenceState", "pr_importFiles", "pr_createSequence", "pr_duplicateSequence",
-  "pr_placeClip", "pr_setClipEnabled", "pr_addMarkers", "pr_setClipProperties", "pr_applyEffect", "pr_setEffectProperties", "pr_setInputLut"]);
+  "pr_placeClip", "pr_setClipEnabled", "pr_addMarkers", "pr_setClipProperties", "pr_applyEffect", "pr_setEffectProperties", "pr_setInputLut", "pr_copyEffect"]);
 const TIMEOUTS = { pr_importFiles: 300000, pr_createSequence: 120000, pr_duplicateSequence: 120000, pr_exportSequence: 3600000 };
 function timeoutFor(name) { return TIMEOUTS[name] || 90000; }
 

@@ -1,0 +1,10 @@
+{
+  "name": "stocker-premiere",
+  "version": "0.1.0",
+  "description": "Edit Adobe Premiere Pro from Claude Code: local MCP server + UXP panel with pr_* tools (read projects and sequences, place clips, markers, effects, input LUTs, export).",
+  "author": { "name": "Stocker Films" },
+  "homepage": "https://github.com/johnstk/stocker-premiere",
+  "repository": "https://github.com/johnstk/stocker-premiere",
+  "license": "MIT",
+  "keywords": ["mcp", "premiere-pro", "adobe-uxp", "video-editing"]
+}

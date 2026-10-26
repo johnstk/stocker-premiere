@@ -2,7 +2,7 @@
   "name": "stocker-premiere",
   "version": "0.1.0",
   "private": true,
-  "description": "Ponte local Claude ↔ Premiere Pro (MCP stdio + painel UXP), contrato pr_*",
+  "description": "Local MCP server + Premiere Pro UXP panel that lets Claude edit Premiere timelines (pr_* tools)",
   "type": "commonjs",
   "engines": {
     "node": ">=22"
@@ -16,5 +16,19 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",
     "ws": "^8.22.0"
-  }
+  },
+  "license": "MIT",
+  "author": "Stocker Films",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/johnstk/stocker-premiere.git"
+  },
+  "keywords": [
+    "mcp",
+    "mcp-server",
+    "claude-code",
+    "premiere-pro",
+    "adobe-uxp",
+    "video-editing"
+  ]
 }

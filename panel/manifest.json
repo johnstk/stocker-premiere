@@ -2,7 +2,7 @@
   "manifestVersion": 5,
   "id": "com.stockerfilms.premiere.ponte",
   "name": "Stocker Premiere",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "main": "index.html",
   "host": [{ "app": "premierepro", "minVersion": "26.3.0" }],
   "entrypoints": [

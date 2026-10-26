@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "stocker-premiere": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/bin/start.js"]
+    }
+  }
+}

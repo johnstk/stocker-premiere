@@ -122,3 +122,12 @@ test("pr_exportSequence agora ignora arquivo antigo no destino", async () => {
   assert.equal(r.data.concluido, true);
   assert.equal(r.data.bytes, 300);
 });
+
+test("pr_copyEffect está no catálogo e entra no plano de edição", () => {
+  const { TOOLS: T, EDIT_PLAN_ALLOWED } = require("../server/tools");
+  const tool = T.find((x) => x.name === "pr_copyEffect");
+  assert.ok(tool, "pr_copyEffect no catálogo");
+  assert.deepEqual(tool.inputSchema.required, ["from", "clips"]);
+  assert.equal(tool.inputSchema.properties.from.required[0], "track");
+  assert.ok(EDIT_PLAN_ALLOWED.has("pr_copyEffect"));
+});

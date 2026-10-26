@@ -1,0 +1,16 @@
+{
+  "name": "stocker-films",
+  "owner": {
+    "name": "Stocker Films"
+  },
+  "plugins": [
+    {
+      "name": "stocker-premiere",
+      "source": "./",
+      "description": "Edit Adobe Premiere Pro from Claude Code (MCP server + UXP panel, pr_* tools)."
+    }
+  ],
+  "metadata": {
+    "description": "Stocker Films tools for Claude Code: edit Adobe Premiere Pro through a local MCP server and UXP panel."
+  }
+}
