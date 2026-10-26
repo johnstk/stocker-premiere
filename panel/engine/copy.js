@@ -2,8 +2,12 @@
 const { PonteError, ERR } = require("../lib/protocol");
 const { matchNameIs } = require("../lib/params");
 
-// Copia um efeito inteiro (todos os parâmetros) de um clipe para outros: o "Colar atributos" do Premiere.
-// Serve para levar a cor do Lumetri (LUT de entrada, look, ajustes), que não atravessa o XML.
+// Copia um efeito inteiro de um clipe para outros: o "Colar atributos" do Premiere. Serve para levar a cor do
+// Lumetri (LUT de entrada, look, curvas), que não atravessa o XML.
+// Método "componente" (padrão): a cadeia do destino recebe o próprio componente da origem e o Premiere o clona
+// com o estado interno. Validado ao vivo no 26.5.2: a cor KG chegou inteira e a origem ficou intacta.
+// Método "parametros": copia parâmetro a parâmetro; a API não lê os de texto (Blob, LUTAsset, LookAsset, curvas),
+// então a LUT e o look ficam de fora. Fica para efeitos simples.
 const igual = (a, b) => {
   if (typeof a === "number" && typeof b === "number") return Math.abs(a - b) <= 1e-4;
   try { return JSON.stringify(a) === JSON.stringify(b); } catch (e) { return a === b; }
@@ -48,9 +52,31 @@ module.exports = (P) => {
     if (!origem) throw new PonteError(ERR.NOT_FOUND, `O clipe de origem não tem ${mn} (ocorrência ${occ}).`);
     const params = await lerParams(origem, Number((await itOrigem.getInPoint()).ticksNumber));
     const animadosNaOrigem = params.filter((q) => q.animado).map((q) => q.i);
+    // parâmetros que a API não deixa ler (Blob, LUTAsset…): ficam de fora e são relatados
+    const semValor = params.filter((q) => q.valor === undefined || q.valor === null).map((q) => ({ i: q.i, nome: q.nome }));
+    const tipos = params.filter((q) => typeof q.valor === "string" || (q.valor && typeof q.valor === "object")).map((q) => ({ i: q.i, nome: q.nome, tipo: typeof q.valor, amostra: String(typeof q.valor === "string" ? q.valor : JSON.stringify(q.valor)).slice(0, 120) }));
 
     const seq = await x.sequence(p, input.sequence);
     const resultados = [];
+    if ((input.metodo || "componente") === "componente") {
+      for (const ref of refs) {
+        const it = await x.findClip(seq, ref);
+        const antes = (await x.componentByMatch(it, mn, occ));
+        const chain = await it.getComponentChain();
+        const n0 = await chain.getComponentCount();
+        x.tx(p, `stocker-premiere: colar ${mn}`, () => {
+          const acts = [];
+          if (antes.component) acts.push(chain.createRemoveComponentAction(antes.component));
+          acts.push(chain.createAppendComponentAction(origem));
+          return acts;
+        });
+        const novo = (await x.componentByMatch(it, mn, occ)).component;
+        const aindaNaOrigem = !!(await x.componentByMatch(itOrigem, mn, occ)).component;
+        resultados.push({ clip: ref, componentes: [n0, await (await it.getComponentChain()).getComponentCount()], temEfeito: !!novo, aindaNaOrigem,
+          verificado: !!novo && aindaNaOrigem });
+      }
+      return { efeito: mn, metodo: "componente", resultados, verificado: resultados.every((r) => r.verificado) };
+    }
     for (const ref of refs) {
       const it = await x.findClip(seq, ref);
       let alvo = (await x.componentByMatch(it, mn, occ)).component;
@@ -68,7 +94,7 @@ module.exports = (P) => {
       x.tx(p, `stocker-premiere: copiar ${mn}`, () => {
         const acts = [];
         for (const q of params) {
-          if (q.valor === undefined) continue;
+          if (q.valor === undefined || q.valor === null) continue;
           try {
             const prm = alvo.getParam(q.i);
             if (prm.isTimeVarying()) acts.push(prm.createSetTimeVaryingAction(false));
@@ -80,14 +106,14 @@ module.exports = (P) => {
       const lidos = await lerParams((await x.componentByMatch(it, mn, occ)).component, Number((await it.getInPoint()).ticksNumber));
       const diferentes = [];
       for (const q of params) {
-        if (q.valor === undefined || recusados.some((r) => r.i === q.i)) continue;
+        if (q.valor === undefined || q.valor === null || recusados.some((r) => r.i === q.i)) continue;
         const l = lidos[q.i];
         if (!l || !igual(l.valor, q.valor)) diferentes.push({ i: q.i, nome: q.nome });
       }
-      resultados.push({ clip: ref, criado, copiados: params.length - recusados.length - diferentes.length, recusados, diferentes,
+      resultados.push({ clip: ref, criado, copiados: params.length - semValor.length - recusados.length - diferentes.length, recusados, diferentes,
         verificado: !recusados.length && !diferentes.length });
     }
-    return { efeito: mn, parametros: params.length, animadosNaOrigem, resultados, verificado: resultados.every((r) => r.verificado) };
+    return { efeito: mn, parametros: params.length, animadosNaOrigem, semValor, tipos, resultados, verificado: resultados.every((r) => r.verificado) };
   }
 
   return { pr_copyEffect };

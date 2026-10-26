@@ -129,5 +129,6 @@ test("pr_copyEffect está no catálogo e entra no plano de edição", () => {
   assert.ok(tool, "pr_copyEffect no catálogo");
   assert.deepEqual(tool.inputSchema.required, ["from", "clips"]);
   assert.equal(tool.inputSchema.properties.from.required[0], "track");
+  assert.deepEqual(tool.inputSchema.properties.metodo.enum, ["componente", "parametros"]);
   assert.ok(EDIT_PLAN_ALLOWED.has("pr_copyEffect"));
 });
