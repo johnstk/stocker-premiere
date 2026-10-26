@@ -86,3 +86,26 @@ test("pr_exportFrame espera o PNG que o Premiere grava depois de responder", asy
   assert.equal(r.ok, true);
   assert.equal(r.image.data, bytes.toString("base64"));
 });
+
+test("pr_exportSequence agora espera o arquivo crescer e estabilizar", async () => {
+  const out = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "sp-exp-")), "saida.mp4");
+  const b = fakeBridge({ pr_exportSequence: () => {
+    setTimeout(() => fs.writeFileSync(out, Buffer.alloc(100)), 30);
+    setTimeout(() => fs.appendFileSync(out, Buffer.alloc(150)), 70);
+    return { ok: true, data: { ok: true, iniciado: true, outputPath: out, modo: "agora" } };
+  } });
+  const r = await createHandlers({ bridge: b, exportPollMs: 40, exportStableCount: 3, exportMaxMs: 5000 })
+    .callTool("pr_exportSequence", { outputPath: out, preset: "x.epr", confirmado: true });
+  assert.equal(r.data.concluido, true);
+  assert.equal(r.data.bytes, 250);
+});
+
+test("pr_exportSequence agora sem arquivo devolve aviso ao estourar o limite", async () => {
+  const out = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "sp-exp-")), "nunca.mp4");
+  const b = fakeBridge({ pr_exportSequence: () => ({ ok: true, data: { ok: true, iniciado: true, outputPath: out, modo: "agora" } }) });
+  const r = await createHandlers({ bridge: b, exportPollMs: 10, exportStableCount: 3, exportMaxMs: 60 })
+    .callTool("pr_exportSequence", { outputPath: out, preset: "x.epr", confirmado: true });
+  assert.equal(r.ok, true);
+  assert.equal(r.data.concluido, false);
+  assert.match(r.data.aviso, /não estabilizou/);
+});

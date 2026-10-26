@@ -40,7 +40,19 @@ async function waitForFile(p, { interval = 100, max = 5000 } = {}) {
   return false;
 }
 
-function createHandlers({ bridge, startError = null, frameDir = FRAME_DIR }) {
+async function waitStable(p, { interval, stable, max }) {
+  let last = -1, same = 0;
+  for (let t = 0; t <= max; t += interval) {
+    let size = -1;
+    try { size = fs.statSync(p).size; } catch (e) { size = -1; }
+    if (size > 0 && size === last) { if (++same >= stable) return size; } else same = 0;
+    last = size;
+    await new Promise((r) => setTimeout(r, interval));
+  }
+  return null;
+}
+
+function createHandlers({ bridge, startError = null, frameDir = FRAME_DIR, exportPollMs = 1000, exportStableCount = 3, exportMaxMs = 55 * 60 * 1000 }) {
   async function callTool(name, args) {
     if (startError) return { ok: false, error: { code: startError.code || ERR.BUSY, message: startError.message } };
     args = args || {};
@@ -68,6 +80,11 @@ function createHandlers({ bridge, startError = null, frameDir = FRAME_DIR }) {
       if (!file) return { ok: false, error: { code: ERR.PREMIERE, message: `O Premiere disse que exportou o quadro, mas ${r.data && r.data.path} não existe.` } };
       r.data.path = file;
       r.image = { data: fs.readFileSync(file).toString("base64"), mimeType: "image/png" };
+    }
+    if (r.ok && name === "pr_exportSequence" && r.data && r.data.modo === "agora" && r.data.outputPath) {
+      const bytes = await waitStable(r.data.outputPath, { interval: exportPollMs, stable: exportStableCount, max: exportMaxMs });
+      if (bytes === null) return { ...r, data: { ...r.data, concluido: false, aviso: "o arquivo não estabilizou em 55 min; confira no disco" } };
+      return { ...r, data: { ...r.data, concluido: true, bytes } };
     }
     return r;
   }

@@ -30,36 +30,10 @@ module.exports = (P) => {
     const fila = input.modo === "fila_ame";
     if (fila && !em.isAMEInstalled) throw new PonteError(ERR.NOT_FOUND, "O Media Encoder não está instalado.");
     const type = fila ? P.Constants.ExportType.QUEUE_TO_AME : P.Constants.ExportType.IMMEDIATELY;
-    if (fila) {
-      const ok = await em.exportSequence(seq, type, input.outputPath, input.preset, input.inteira !== false);
-      if (!ok) throw new PonteError(ERR.PREMIERE, "O Premiere recusou o export (preset ou caminho de saída inválido?).");
-      return { ok, concluido: false, enfileirado: true, outputPath: input.outputPath, modo: "fila_ame" };
-    }
-    const msg = (ev) => (ev && (ev.message || ev.error)) || (ev ? JSON.stringify(ev) : "");
-    const EM = P.EncoderManager;
-    let done;
-    const evento = new Promise((resolve) => { done = resolve; });
-    const handlers = [
-      [EM.EVENT_RENDER_COMPLETE, (ev) => done({ tipo: "ok", ev })],
-      [EM.EVENT_RENDER_ERROR, (ev) => done({ tipo: "erro", ev })],
-      [EM.EVENT_RENDER_CANCEL, (ev) => done({ tipo: "cancelado", ev })],
-    ];
-    let timer;
-    const timeout = new Promise((resolve) => { timer = setTimeout(() => resolve({ tipo: "timeout" }), 55 * 60 * 1000); });
-    for (const [n, h] of handlers) em.addEventListener(n, h);
-    let ok, fim;
-    try {
-      ok = await em.exportSequence(seq, type, input.outputPath, input.preset, input.inteira !== false);
-      if (!ok) throw new PonteError(ERR.PREMIERE, "O Premiere recusou o export (preset ou caminho de saída inválido?).");
-      fim = await Promise.race([evento, timeout]);
-    } finally {
-      clearTimeout(timer);
-      for (const [n, h] of handlers) em.removeEventListener(n, h);
-    }
-    if (fim.tipo === "erro") throw new PonteError(ERR.PREMIERE, "O render falhou" + (msg(fim.ev) ? ": " + msg(fim.ev) : "."));
-    if (fim.tipo === "cancelado") throw new PonteError(ERR.PREMIERE, "O render foi cancelado" + (msg(fim.ev) ? ": " + msg(fim.ev) : "."));
-    if (fim.tipo === "timeout") return { ok: true, concluido: false, aviso: "render não confirmou o fim; confira o arquivo", outputPath: input.outputPath, modo: "agora" };
-    return { ok: true, concluido: true, outputPath: input.outputPath, modo: "agora" };
+    const ok = await em.exportSequence(seq, type, input.outputPath, input.preset, input.inteira !== false);
+    if (!ok) throw new PonteError(ERR.PREMIERE, "O Premiere recusou o export (preset ou caminho de saída inválido?).");
+    if (fila) return { ok, enfileirado: true, concluido: false, outputPath: input.outputPath, modo: "fila_ame" };
+    return { ok, iniciado: true, outputPath: input.outputPath, modo: "agora" };
   }
 
   return { pr_exportFrame, pr_exportSequence };
