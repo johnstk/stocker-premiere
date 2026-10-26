@@ -114,6 +114,42 @@ module.exports = (P) => {
       if (diffs.length) res.diferenca = diffs.join("; ");
       return res;
     }
+    // Item só de áudio (ex.: WAV da lapela): não gera clipe em V(n); confere na trilha de áudio usada.
+    // (Item só de áudio com audioTrack:null está fora de escopo: não há trilha de áudio para conferir.)
+    if (aIndex !== -1) {
+      const rotA = `A${aIndex + 1}`;
+      let itensA = [];
+      try { itensA = await x.trackItems(seq, rotA); } catch (e) { itensA = []; }
+      for (let j = 0; j < itensA.length; j++) {
+        const it = itensA[j];
+        if (!(await startsAt(it.getStartTime()))) continue;
+        let mesmo = null;
+        try {
+          const pi = await it.getProjectItem();
+          const idLido = await x.nodeIdOf(pi);
+          if (idLido && found.nodeId) mesmo = idLido === String(found.nodeId);
+          else {
+            const mp = await P.ClipProjectItem.cast(pi).getMediaFilePath();
+            if (mp && found.mediaPath) mesmo = mp.normalize("NFC") === found.mediaPath.normalize("NFC");
+          }
+        } catch (e) { mesmo = null; }
+        if (mesmo !== true) continue;
+        const res = {
+          track: rotA, clip: j + 1, start: x.sec(await it.getStartTime()), end: x.sec(await it.getEndTime()),
+          sourceIn: x.sec(await it.getInPoint()), sourceOut: x.sec(await it.getOutPoint()), audioTrack: rotA, somenteAudio: true,
+        };
+        const diffs = [];
+        if (input.sourceIn !== undefined && Math.abs(res.sourceIn - parseTime(input.sourceIn, tb)) > frame) diffs.push(`sourceIn ficou ${res.sourceIn}`);
+        if (input.sourceOut !== undefined && Math.abs(res.sourceOut - parseTime(input.sourceOut, tb)) > frame) diffs.push(`sourceOut ficou ${res.sourceOut}`);
+        if (input.sourceIn !== undefined && input.sourceOut !== undefined) {
+          const esperado = parseTime(input.sourceOut, tb) - parseTime(input.sourceIn, tb);
+          if (Math.abs((res.end - res.start) - esperado) > frame) diffs.push(`duração ficou ${roundDur(res.end - res.start)}s; esperado ${roundDur(esperado)}s`);
+        }
+        res.verificado = diffs.length === 0;
+        if (diffs.length) res.diferenca = diffs.join("; ");
+        return res;
+      }
+    }
     return { track: `V${v.index + 1}`, verificado: false, diferenca: `nenhum clipe começa em ${time}s em V${v.index + 1} depois de colocar` };
   }
 
