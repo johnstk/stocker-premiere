@@ -3,7 +3,7 @@ const proto = require("../lib/protocol");
 const PANEL_VERSION = require("../lib/versao");
 
 // Cada tarefa seguinte acrescenta o seu módulo nesta lista.
-const MODULES = [require("./read"), require("./project"), require("./timeline")];
+const MODULES = [require("./read"), require("./project"), require("./timeline"), require("./look")];
 
 function createEngine(P) {
   const handlers = {};
