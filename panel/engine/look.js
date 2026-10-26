@@ -1,6 +1,6 @@
 "use strict";
 const { CLIP_PROPS, pixelsToNormalized, normalizedToPixels } = require("../lib/params");
-const { parseTime } = require("../lib/tempo");
+const { parseTime, alignTicksToFrame, secondsToTicks, ticksToSeconds } = require("../lib/tempo");
 const { PonteError, ERR } = require("../lib/protocol");
 const { matchNameIs } = require("../lib/params");
 
@@ -37,12 +37,29 @@ module.exports = (P) => {
     const tb = await seq.getTimebase();
     const fs = await seq.getFrameSize();
     const size = { width: fs.width, height: fs.height };
-    const toValue = (key, v) => (key === "position" ? pixelsToNormalized(v, size) : v);
+    const bad = (fn) => { try { return fn(); } catch (e) { if (e instanceof PonteError) throw e; throw new PonteError(ERR.BAD_INPUT, e.message); } };
+    const toValue = (key, v) => bad(() => {
+      if (key === "position") return pixelsToNormalized(v, size);
+      if (typeof v !== "number" || !Number.isFinite(v)) throw new Error(`${key} deve ser um número.`);
+      return v;
+    });
+    // valida e converte tudo ANTES do lock
+    const staticVals = {};
+    for (const key of statics) staticVals[key] = toValue(key, input[key]);
+    const kfPlan = {}; // key -> [{ tl: ticks de timeline alinhados, value }]
+    for (const key of kfKeys) {
+      kfPlan[key] = kfs.filter((f) => f[key] !== undefined).map((f) => ({
+        tl: bad(() => alignTicksToFrame(secondsToTicks(parseTime(f.time, tb)), tb)),
+        value: toValue(key, f[key]),
+        raw: f[key],
+      }));
+    }
+    const sec3 = (ticks) => Math.round(ticksToSeconds(ticks) * 1000) / 1000;
     const resultados = [];
     for (const ref of refs) {
       const it = await x.findClip(seq, ref);
-      const clipStart = x.sec(await it.getStartTime());
-      const clipIn = x.sec(await it.getInPoint());
+      const startTicks = Number((await it.getStartTime()).ticksNumber);
+      const inTicks = Number((await it.getInPoint()).ticksNumber);
       const comps = await propComponents(it, [...statics, ...kfKeys]);
       x.tx(p, "stocker-premiere: propriedades do clipe", () => {
         const acts = [];
@@ -50,15 +67,15 @@ module.exports = (P) => {
           const spec = CLIP_PROPS[key];
           const prm = comps[spec.component].getParam(spec.index);
           if (prm.isTimeVarying()) acts.push(prm.createSetTimeVaryingAction(false));
-          acts.push(prm.createSetValueAction(prm.createKeyframe(toValue(key, input[key])), true));
+          acts.push(prm.createSetValueAction(prm.createKeyframe(staticVals[key]), true));
         }
         for (const key of kfKeys) {
           const spec = CLIP_PROPS[key];
           const prm = comps[spec.component].getParam(spec.index);
           if (!prm.isTimeVarying()) acts.push(prm.createSetTimeVaryingAction(true));
-          for (const f of kfs.filter((k) => k[key] !== undefined)) {
-            const kf = prm.createKeyframe(toValue(key, f[key]));
-            kf.position = x.tickSeconds(parseTime(f.time, tb) - clipStart + clipIn); // tempo do keyframe = tempo da mídia
+          for (const k of kfPlan[key]) {
+            const kf = prm.createKeyframe(k.value);
+            kf.position = P.TickTime.createWithTicks(String(k.tl - startTicks + inTicks)); // tempo da mídia
             acts.push(prm.createAddKeyframeAction(kf));
           }
         }
@@ -68,18 +85,28 @@ module.exports = (P) => {
       const lido = {};
       for (const key of statics) {
         const spec = CLIP_PROPS[key];
-        const v = (await fresh[spec.component].getParam(spec.index).getValueAtTime(x.tickSeconds(clipIn))).value;
+        const v = (await fresh[spec.component].getParam(spec.index).getValueAtTime(P.TickTime.createWithTicks(String(inTicks)))).value;
         lido[key] = key === "position" ? normalizedToPixels(v, size) : v;
       }
       const keyframes = {};
+      const diferenca = [];
+      const frame = Number(tb);
       for (const key of kfKeys) {
         const spec = CLIP_PROPS[key];
-        const list = await fresh[spec.component].getParam(spec.index).getKeyframeListAsTickTimes();
-        keyframes[key] = list.map((t) => x.sec(t) - clipIn + clipStart).map((s) => Math.round(s * 1000) / 1000);
+        const prm = fresh[spec.component].getParam(spec.index);
+        const list = (await prm.getKeyframeListAsTickTimes()).map((t) => Number(t.ticksNumber) - inTicks + startTicks);
+        keyframes[key] = [];
+        for (const k of kfPlan[key]) {
+          const t = sec3(k.tl);
+          if (!list.some((l) => Math.abs(l - k.tl) <= frame)) { diferenca.push({ propriedade: key, tempo: t, problema: "keyframe ausente" }); continue; }
+          keyframes[key].push(t);
+          let v = (await prm.getValueAtTime(P.TickTime.createWithTicks(String(k.tl - startTicks + inTicks)))).value;
+          if (key === "position") v = normalizedToPixels(v, size);
+          if (!near(v, k.raw)) diferenca.push({ propriedade: key, tempo: t, esperado: k.raw, lido: v, problema: "valor diferente" });
+        }
       }
-      const okStatic = statics.every((k) => near(lido[k], input[k]));
-      const okKf = kfKeys.every((k) => keyframes[k].length === kfs.filter((f) => f[k] !== undefined).length);
-      resultados.push({ clip: ref, lido, keyframes: kfKeys.length ? keyframes : undefined, verificado: okStatic && okKf });
+      for (const k of statics) if (!near(lido[k], input[k])) diferenca.push({ propriedade: k, esperado: input[k], lido: lido[k], problema: "valor diferente" });
+      resultados.push({ clip: ref, lido, keyframes: kfKeys.length ? keyframes : undefined, diferenca, verificado: diferenca.length === 0 });
     }
     return { resultados, verificado: resultados.every((r) => r.verificado) };
   }
@@ -137,10 +164,14 @@ module.exports = (P) => {
 
   function paramIndex(component, key) {
     const m = /^#(\d+)$/.exec(String(key));
-    if (m) return Number(m[1]);
     const n = component.getParamCount();
+    const lista = () => Array.from({ length: n }, (_, i) => `#${i} ${component.getParam(i).displayName}`).join(", ");
+    if (m) {
+      if (Number(m[1]) >= n) throw new PonteError(ERR.BAD_INPUT, `Parâmetro '${key}' fora do intervalo (0..${n - 1}). Parâmetros: ${lista()}`);
+      return Number(m[1]);
+    }
     for (let i = 0; i < n; i++) if (String(component.getParam(i).displayName).trim().toLowerCase() === String(key).trim().toLowerCase()) return i;
-    throw new PonteError(ERR.NOT_FOUND, `Parâmetro '${key}' não existe. Use '#índice'. Nomes: ${Array.from({ length: n }, (_, i) => `#${i} ${component.getParam(i).displayName}`).join(", ")}`);
+    throw new PonteError(ERR.BAD_INPUT, `Parâmetro '${key}' não existe. Use '#índice'. Nomes: ${lista()}`);
   }
 
   async function pr_setEffectProperties(input) {
