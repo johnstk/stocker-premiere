@@ -81,13 +81,22 @@ module.exports = function makePpro(P) {
     }
     return { chain, component: null, index: -1 };
   }
-  // createEmptySelection só funciona com callback (validado ao vivo no 26.5.2).
-  async function newSelection(trackItems) {
-    let sel = null;
-    await P.TrackItemSelection.createEmptySelection((s) => { sel = s; });
-    if (!sel) throw new PonteError(ERR.PREMIERE, "O Premiere não devolveu a seleção vazia.");
+  // Seleção da sequência (a de createEmptySelection só vale dentro da callback).
+  async function newSelection(seq, trackItems) {
+    await seq.clearSelection();
+    const sel = await seq.getSelection();
     for (const it of trackItems || []) await sel.addItem(it);
     return sel;
+  }
+  // Remove os itens pela seleção da sequência e limpa a seleção no fim.
+  async function removeSelected(p, seq, items, mediaType, label) {
+    const editor = P.SequenceEditor.getEditor(seq);
+    try {
+      const sel = await newSelection(seq, items);
+      tx(p, label, () => [editor.createRemoveItemsAction(sel, false, mediaType, false)]);
+    } finally {
+      try { await seq.clearSelection(); } catch (e) { /* sem seleção */ }
+    }
   }
   async function nodeIdOf(item) { try { return String(await item.getId()); } catch (e) { return null; } }
   async function walkItems(folder, binPath, out, depth, maxDepth) {
@@ -119,5 +128,5 @@ module.exports = function makePpro(P) {
     if (hits.length > 1) throw new PonteError(ERR.BAD_INPUT, `Há ${hits.length} itens '${JSON.stringify(ref)}'. Use {nodeId} ou o caminho "Bin/Nome". Candidatos: ${hits.slice(0, 5).map((h) => `${h.binPath}/${h.name} (${h.nodeId})`).join(", ")}`);
     return hits[0];
   }
-  return { project, sequence, tickSeconds, tickAligned, sec, parseTrack, trackItems, findClip, tx, componentByMatch, newSelection, nodeIdOf, walkItems, findProjectItem, CLIP };
+  return { project, sequence, tickSeconds, tickAligned, sec, parseTrack, trackItems, findClip, tx, componentByMatch, newSelection, removeSelected, nodeIdOf, walkItems, findProjectItem, CLIP };
 };

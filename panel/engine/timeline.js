@@ -8,15 +8,26 @@ const roundDur = (n) => Math.round(n * 1000) / 1000;
 module.exports = (P) => {
   const x = require("./ppro")(P);
 
-  async function removeAudioStartingAt(p, seq, label, time, frame) {
-    const alvo = [];
-    for (const it of await x.trackItems(seq, label)) {
-      if (Math.abs(x.sec(await it.getStartTime()) - time) <= frame / 2 + 1e-6) alvo.push(it);
+  // Itens da trilha de áudio que começam em `time`, com uma chave de identidade.
+  async function audioAt(seq, label, time, frame) {
+    const out = [];
+    let items = [];
+    try { items = await x.trackItems(seq, label); } catch (e) { return out; }
+    for (const it of items) {
+      const st = x.sec(await it.getStartTime());
+      if (Math.abs(st - time) > frame / 2 + 1e-6) continue;
+      let pid = null;
+      try { pid = await x.nodeIdOf(await it.getProjectItem()); } catch (e) { pid = null; }
+      out.push({ it, key: `${st}|${pid}|${await it.getName()}` });
     }
+    return out;
+  }
+
+  // Remove só o áudio que NÃO existia antes (snapshot de chaves).
+  async function removeAudioStartingAt(p, seq, label, time, frame, antes) {
+    const alvo = (await audioAt(seq, label, time, frame)).filter((a) => !antes.has(a.key)).map((a) => a.it);
     if (!alvo.length) return;
-    const sel = await x.newSelection(alvo);
-    const editor = P.SequenceEditor.getEditor(seq);
-    x.tx(p, "stocker-premiere: tirar o áudio", () => [editor.createRemoveItemsAction(sel, false, P.Constants.MediaType.AUDIO, false)]);
+    await x.removeSelected(p, seq, alvo, P.Constants.MediaType.AUDIO, "stocker-premiere: tirar o áudio");
   }
 
   async function pr_placeClip(input) {
@@ -45,6 +56,8 @@ module.exports = (P) => {
       const sOut = input.sourceOut !== undefined ? x.tickAligned(parseTime(input.sourceOut, tb), tb) : origOut;
       x.tx(p, "stocker-premiere: marcar in/out", () => [clip.createSetInOutPointsAction(sIn, sOut)]);
     }
+    let antesAudio = new Set();
+    if (aIndex === -1) antesAudio = new Set((await audioAt(seq, `A${v.index + 1}`, time, frame)).map((a) => a.key));
     try {
       const editor = P.SequenceEditor.getEditor(seq);
       const at = x.tickAligned(time, tb);
@@ -54,7 +67,7 @@ module.exports = (P) => {
       ]);
       // aIdx -1 ainda coloca o áudio no Premiere: coloca na trilha do vídeo e tira depois.
       place(aIndex === -1 ? v.index : aIndex);
-      if (aIndex === -1) await removeAudioStartingAt(p, seq, `A${v.index + 1}`, time, frame);
+      if (aIndex === -1) await removeAudioStartingAt(p, seq, `A${v.index + 1}`, time, frame, antesAudio);
     } finally {
       if (hasRange) x.tx(p, "stocker-premiere: restaurar in/out do item", () => [clip.createSetInOutPointsAction(origIn, origOut)]);
     }
@@ -91,11 +104,10 @@ module.exports = (P) => {
         const rot = `A${(aIndex === -1 ? v.index : aIndex) + 1}`;
         let temAudio = false;
         try {
-          for (const a of await x.trackItems(seq, rot)) {
-            if (await startsAt(a.getStartTime())) { temAudio = true; break; }
-          }
+          const lidos = await audioAt(seq, rot, time, frame);
+          temAudio = aIndex === -1 ? lidos.some((l) => !antesAudio.has(l.key)) : lidos.length > 0;
         } catch (e) { temAudio = false; }
-        if (aIndex === -1 && temAudio) diffs.push(`ficou áudio em ${rot} no tempo ${time}s`);
+        if (aIndex === -1 && temAudio) diffs.push(`ficou áudio novo em ${rot} no tempo ${time}s`);
         if (aIndex !== -1 && !temAudio) diffs.push(`não há clipe de áudio em ${rot} no tempo ${time}s`);
       }
       res.verificado = diffs.length === 0;
