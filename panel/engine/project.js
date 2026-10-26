@@ -1,0 +1,95 @@
+"use strict";
+const { fpsFromTimebase, roundSec } = require("../lib/tempo");
+const { PonteError, ERR } = require("../lib/protocol");
+
+module.exports = (P) => {
+  const x = require("./ppro")(P);
+
+  async function ensureBin(p, binPath) {
+    let folder = await p.getRootItem();
+    for (const name of String(binPath).split("/").filter(Boolean)) {
+      const findChild = async () => (await folder.getItems()).find((k) => k.type === P.ProjectItem.TYPE_BIN && k.name === name);
+      let child = await findChild();
+      if (!child) {
+        const parent = folder;
+        x.tx(p, `stocker-premiere: criar bin ${name}`, () => [parent.createBinAction(name, false)]);
+        child = await findChild();
+        if (!child) throw new PonteError(ERR.PREMIERE, `Criei o bin '${name}', mas ele não apareceu.`);
+      }
+      folder = P.FolderItem.cast(child);
+    }
+    return folder;
+  }
+
+  async function pr_importFiles(input) {
+    const paths = input.paths || [];
+    if (!paths.length || !paths.every((s) => typeof s === "string" && s.startsWith("/"))) throw new PonteError(ERR.BAD_INPUT, "paths deve ser uma lista de caminhos absolutos.");
+    const p = await x.project();
+    const target = input.bin ? await ensureBin(p, input.bin) : await p.getRootItem();
+    const ok = await p.importFiles(paths, true, target, false);
+    if (!ok) throw new PonteError(ERR.PREMIERE, "O Premiere recusou o import (importFiles devolveu false).");
+    const all = [];
+    await x.walkItems(target, input.bin || "", all, 0, 0);
+    return {
+      importados: paths.map((path) => {
+        const it = all.find((i) => i.mediaPath === path);
+        return it ? { path, nodeId: it.nodeId, name: it.name } : { path, erro: "não apareceu no bin depois do import" };
+      }),
+    };
+  }
+
+  async function removeAllTrackItems(p, seq) {
+    const sel = await P.TrackItemSelection.createEmptySelection();
+    let n = 0;
+    for (const kind of ["V", "A"]) {
+      const count = kind === "V" ? await seq.getVideoTrackCount() : await seq.getAudioTrackCount();
+      for (let i = 0; i < count; i++) for (const it of await x.trackItems(seq, `${kind}${i + 1}`)) { await sel.addItem(it); n++; }
+    }
+    if (!n) return;
+    const editor = P.SequenceEditor.getEditor(seq);
+    x.tx(p, "stocker-premiere: esvaziar sequência", () => [editor.createRemoveItemsAction(sel, false, P.Constants.MediaType.ANY, false)]);
+  }
+
+  async function pr_createSequence(input) {
+    if (!input.name || !Array.isArray(input.fromItems) || !input.fromItems.length) throw new PonteError(ERR.BAD_INPUT, "name e fromItems são obrigatórios.");
+    const p = await x.project();
+    const items = [];
+    for (const ref of input.fromItems) items.push(P.ClipProjectItem.cast((await x.findProjectItem(p, ref))._item));
+    const target = input.bin ? await ensureBin(p, input.bin) : await p.getInsertionBin();
+    const seq = await p.createSequenceFromMedia(input.name, items, target);
+    if (!seq) throw new PonteError(ERR.PREMIERE, "createSequenceFromMedia não devolveu a sequência.");
+    if (input.empty) await removeAllTrackItems(p, seq);
+    await p.openSequence(seq);
+    const tb = await seq.getTimebase();
+    const fs = await seq.getFrameSize();
+    return { name: seq.name, nodeId: await x.nodeIdOf(await seq.getProjectItem()), fps: roundSec(fpsFromTimebase(tb)), width: fs.width, height: fs.height };
+  }
+
+  async function pr_duplicateSequence(input) {
+    const p = await x.project();
+    const seq = await x.sequence(p, input.sequence);
+    const ids = async () => {
+      const m = new Map();
+      for (const s of await p.getSequences()) m.set(await x.nodeIdOf(await s.getProjectItem()), s);
+      return m;
+    };
+    const before = await ids();
+    x.tx(p, `stocker-premiere: duplicar ${seq.name}`, () => [seq.createCloneAction()]);
+    const after = await ids();
+    const novo = [...after.entries()].find(([id]) => !before.has(id));
+    if (!novo) throw new PonteError(ERR.PREMIERE, "Dupliquei, mas não achei a sequência nova.");
+    const [nodeId, copy] = novo;
+    const name = input.name || `${seq.name} · cópia`;
+    const item = await copy.getProjectItem();
+    x.tx(p, `stocker-premiere: renomear ${name}`, () => [item.createSetNameAction(name)]);
+    if (input.open !== false) await p.openSequence(copy);
+    return { name, nodeId };
+  }
+
+  async function pr_saveProject() {
+    const p = await x.project();
+    return { salvo: await p.save(), caminho: p.path };
+  }
+
+  return { pr_importFiles, pr_createSequence, pr_duplicateSequence, pr_saveProject };
+};
