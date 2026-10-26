@@ -9,15 +9,14 @@ module.exports = (P) => {
   const x = require("./ppro")(P);
 
   async function removeAudioStartingAt(p, seq, label, time, frame) {
+    const alvo = [];
     for (const it of await x.trackItems(seq, label)) {
-      if (Math.abs(x.sec(await it.getStartTime()) - time) <= frame / 2 + 1e-6) {
-        const sel = await P.TrackItemSelection.createEmptySelection();
-        await sel.addItem(it);
-        const editor = P.SequenceEditor.getEditor(seq);
-        x.tx(p, "stocker-premiere: tirar o áudio", () => [editor.createRemoveItemsAction(sel, false, P.Constants.MediaType.AUDIO, false)]);
-        return;
-      }
+      if (Math.abs(x.sec(await it.getStartTime()) - time) <= frame / 2 + 1e-6) alvo.push(it);
     }
+    if (!alvo.length) return;
+    const sel = await x.newSelection(alvo);
+    const editor = P.SequenceEditor.getEditor(seq);
+    x.tx(p, "stocker-premiere: tirar o áudio", () => [editor.createRemoveItemsAction(sel, false, P.Constants.MediaType.AUDIO, false)]);
   }
 
   async function pr_placeClip(input) {
@@ -51,15 +50,11 @@ module.exports = (P) => {
       const at = x.tickAligned(time, tb);
       const insert = input.mode === "insert";
       const place = (aIdx) => x.tx(p, `stocker-premiere: colocar ${found.name}`, () => [
-        insert ? editor.createInsertProjectItemAction(clip, at, v.index, aIdx, false) : editor.createOverwriteItemAction(clip, at, v.index, aIdx),
+        insert ? editor.createInsertProjectItemAction(found._item, at, v.index, aIdx, false) : editor.createOverwriteItemAction(found._item, at, v.index, aIdx),
       ]);
-      if (aIndex === -1) {
-        let semAudio = true;
-        try { place(-1); } catch (e) { semAudio = false; place(v.index); }
-        if (!semAudio) await removeAudioStartingAt(p, seq, `A${v.index + 1}`, time, frame);
-      } else {
-        place(aIndex);
-      }
+      // aIdx -1 ainda coloca o áudio no Premiere: coloca na trilha do vídeo e tira depois.
+      place(aIndex === -1 ? v.index : aIndex);
+      if (aIndex === -1) await removeAudioStartingAt(p, seq, `A${v.index + 1}`, time, frame);
     } finally {
       if (hasRange) x.tx(p, "stocker-premiere: restaurar in/out do item", () => [clip.createSetInOutPointsAction(origIn, origOut)]);
     }

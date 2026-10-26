@@ -47,15 +47,16 @@ module.exports = (P) => {
   }
 
   async function removeAllTrackItems(p, seq) {
-    const sel = await P.TrackItemSelection.createEmptySelection();
-    let n = 0;
-    for (const kind of ["V", "A"]) {
-      const count = kind === "V" ? await seq.getVideoTrackCount() : await seq.getAudioTrackCount();
-      for (let i = 0; i < count; i++) for (const it of await x.trackItems(seq, `${kind}${i + 1}`)) { await sel.addItem(it); n++; }
-    }
-    if (!n) return;
     const editor = P.SequenceEditor.getEditor(seq);
-    x.tx(p, "stocker-premiere: esvaziar sequência", () => [editor.createRemoveItemsAction(sel, false, P.Constants.MediaType.ANY, false)]);
+    for (const kind of ["V", "A"]) {
+      const todos = [];
+      const count = kind === "V" ? await seq.getVideoTrackCount() : await seq.getAudioTrackCount();
+      for (let i = 0; i < count; i++) for (const it of await x.trackItems(seq, `${kind}${i + 1}`)) todos.push(it);
+      if (!todos.length) continue;
+      const sel = await x.newSelection(todos);
+      const tipo = kind === "V" ? P.Constants.MediaType.VIDEO : P.Constants.MediaType.AUDIO;
+      x.tx(p, `stocker-premiere: esvaziar ${kind === "V" ? "vídeo" : "áudio"}`, () => [editor.createRemoveItemsAction(sel, false, tipo, false)]);
+    }
   }
 
   async function pr_createSequence(input) {
