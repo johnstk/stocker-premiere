@@ -1,6 +1,9 @@
 "use strict";
 const { PonteError, ERR } = require("../lib/protocol");
 
+const semLut = (id) => !id || /^0{8}-0{4}-0{4}-0{4}-0{12}$/i.test(String(id));
+const norm = (id) => (semLut(id) ? null : String(id));
+
 module.exports = (P) => {
   const x = require("./ppro")(P);
 
@@ -17,7 +20,7 @@ module.exports = (P) => {
     for (const { ref, clip } of await clips(p, input.items)) {
       let embeddedLutId = null;
       try { embeddedLutId = await clip.getEmbeddedLUTID(); } catch (e) { embeddedLutId = null; }
-      itens.push({ item: ref, inputLutId: (await clip.getInputLUTID()) || null, embeddedLutId: embeddedLutId || null });
+      itens.push({ item: ref, inputLutId: norm(await clip.getInputLUTID()), embeddedLutId: norm(embeddedLutId) });
     }
     return { itens };
   }
@@ -28,7 +31,7 @@ module.exports = (P) => {
     const alvo = await clips(p, input.items);
     x.tx(p, "stocker-premiere: LUT de entrada", () => alvo.map(({ clip }) => clip.createSetInputLUTIDAction(input.lutId || "")));
     let certos = 0;
-    for (const { clip } of alvo) if (((await clip.getInputLUTID()) || null) === (input.lutId || null)) certos++;
+    for (const { clip } of alvo) if (norm(await clip.getInputLUTID()) === norm(input.lutId)) certos++;
     return { alterados: alvo.length, verificado: certos === alvo.length };
   }
 
