@@ -3,7 +3,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const t = require("../panel/lib/tempo");
 
-const TB_23976 = "10594584000"; // timebase real da Cold open v1 (ticks por quadro)
+const TB_23976 = "10594584000"; // timebase real de uma sequência 23,976 (ticks por quadro)
 
 test("fps a partir do timebase", () => {
   assert.ok(Math.abs(t.fpsFromTimebase(TB_23976) - 24000 / 1001) < 1e-9);

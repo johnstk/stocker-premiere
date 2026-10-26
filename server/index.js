@@ -70,7 +70,7 @@ function createHandlers({ bridge, startError = null, frameDir = FRAME_DIR, expor
       return { ok: true, data: await runPlan(plan, (tool, input) => callTool(tool, input)) };
     }
     if (name === "pr_exportSequence" && args.confirmado !== true) {
-      return { ok: false, error: { code: ERR.NEEDS_CONFIRM, message: "Exportar exige confirmado:true. Peça a aprovação explícita do Jonathan antes." } };
+      return { ok: false, error: { code: ERR.NEEDS_CONFIRM, message: "Exportar exige confirmado:true. Peça a aprovação explícita do usuário antes." } };
     }
     if (name === "pr_exportFrame") {
       fs.mkdirSync(frameDir, { recursive: true });
