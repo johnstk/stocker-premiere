@@ -40,11 +40,14 @@ async function waitForFile(p, { interval = 100, max = 5000 } = {}) {
   return false;
 }
 
-async function waitStable(p, { interval, stable, max }) {
+async function waitStable(p, { interval, stable, max, baseline = null }) {
   let last = -1, same = 0;
   for (let t = 0; t <= max; t += interval) {
     let size = -1;
-    try { size = fs.statSync(p).size; } catch (e) { size = -1; }
+    try {
+      const st = fs.statSync(p);
+      if (!baseline || st.mtimeMs > baseline.mtimeMs) size = st.size;
+    } catch (e) { size = -1; }
     if (size > 0 && size === last) { if (++same >= stable) return size; } else same = 0;
     last = size;
     await new Promise((r) => setTimeout(r, interval));
@@ -52,7 +55,7 @@ async function waitStable(p, { interval, stable, max }) {
   return null;
 }
 
-function createHandlers({ bridge, startError = null, frameDir = FRAME_DIR, exportPollMs = 1000, exportStableCount = 3, exportMaxMs = 55 * 60 * 1000 }) {
+function createHandlers({ bridge, startError = null, frameDir = FRAME_DIR, exportPollMs = 1000, exportStableCount = 5, exportMaxMs = 55 * 60 * 1000 }) {
   async function callTool(name, args) {
     if (startError) return { ok: false, error: { code: startError.code || ERR.BUSY, message: startError.message } };
     args = args || {};
@@ -73,6 +76,10 @@ function createHandlers({ bridge, startError = null, frameDir = FRAME_DIR, expor
       fs.mkdirSync(frameDir, { recursive: true });
       args = { ...args, dir: frameDir };
     }
+    let baseline = null;
+    if (name === "pr_exportSequence" && args.outputPath) {
+      try { const st = fs.statSync(args.outputPath); baseline = { mtimeMs: st.mtimeMs, size: st.size }; } catch (e) { baseline = null; }
+    }
     const r = await bridge.send(name, args, { timeoutMs: timeoutFor(name) });
     if (r.ok && name === "pr_exportFrame") {
       if (r.data && r.data.path) await waitForFile(r.data.path);
@@ -82,8 +89,8 @@ function createHandlers({ bridge, startError = null, frameDir = FRAME_DIR, expor
       r.image = { data: fs.readFileSync(file).toString("base64"), mimeType: "image/png" };
     }
     if (r.ok && name === "pr_exportSequence" && r.data && r.data.modo === "agora" && r.data.outputPath) {
-      const bytes = await waitStable(r.data.outputPath, { interval: exportPollMs, stable: exportStableCount, max: exportMaxMs });
-      if (bytes === null) return { ...r, data: { ...r.data, concluido: false, aviso: "o arquivo não estabilizou em 55 min; confira no disco" } };
+      const bytes = await waitStable(r.data.outputPath, { interval: exportPollMs, stable: exportStableCount, max: exportMaxMs, baseline });
+      if (bytes === null) return { ...r, data: { ...r.data, concluido: false, aviso: `o arquivo não estabilizou em ${Math.round(exportMaxMs / 60000)} min; confira no disco` } };
       return { ...r, data: { ...r.data, concluido: true, bytes } };
     }
     return r;
