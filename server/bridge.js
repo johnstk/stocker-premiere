@@ -32,7 +32,15 @@ function createBridge({ port = DEFAULT_PORT, host = "127.0.0.1", token, log = ()
           ws.close(1008, "token");
           return;
         }
-        if (panel && panel !== ws) { try { panel.close(1000, "substituído"); } catch (e) {} }
+        if (panel && panel !== ws) {
+          const old = panel;
+          for (const [id, p] of pending) {
+            clearTimeout(p.timer);
+            p.resolve(result(id, ERR.NOT_CONNECTED, "O painel do Premiere foi reconectado durante o comando."));
+          }
+          pending.clear();
+          try { old.close(1000, "substituído"); } catch (e) {}
+        }
         panel = ws;
         panelInfo = { panel: m.panel, premiere: m.premiere, tools: Array.isArray(m.tools) ? m.tools : null };
         ws.send(JSON.stringify({ type: "welcome" }));

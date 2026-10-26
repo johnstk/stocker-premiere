@@ -74,6 +74,18 @@ async function main() {
     if (!TOOL_NAMES.has(name)) return toContent({ ok: false, error: { code: ERR.UNKNOWN_TOOL, message: "Tool desconhecida: " + name } });
     return toContent(await callTool(name, args));
   });
+  let shuttingDown = false;
+  const shutdown = async () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    try { await bridge.stop(); } catch (e) { /* saindo */ }
+    process.exit(0);
+  };
+  server.onclose = shutdown;
+  process.stdin.on("end", shutdown);
+  process.stdin.on("close", shutdown);
+  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", shutdown);
   await server.connect(new StdioServerTransport());
   log(`MCP ${VERSION} pronto (${TOOLS.length} tools)`);
 }

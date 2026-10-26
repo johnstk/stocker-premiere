@@ -92,3 +92,33 @@ test("porta ocupada → ponte_ocupada", async () => {
   await assert.rejects(b2.start(), (e) => e.code === "ponte_ocupada");
   await b1.stop();
 });
+
+test("painel B substitui A: chamada pendente resolve nao_conectado rápido", async () => {
+  const b = createBridge({ port: 0, token: TOKEN });
+  const port = await b.start();
+  const a = await panel(port, ["pr_lento"]);
+  const t0 = Date.now();
+  const p = b.send("pr_lento", {}, { timeoutMs: 5000 });
+  await new Promise((r) => setTimeout(r, 50));
+  const bb = await panel(port, ["pr_lento"]);
+  const r = await p;
+  assert.equal(r.error.code, "nao_conectado");
+  assert.ok(Date.now() - t0 < 2000);
+  a.close();
+  bb.close();
+  await b.stop();
+});
+
+test("painel desconecta com chamada em andamento → nao_conectado", async () => {
+  const b = createBridge({ port: 0, token: TOKEN });
+  const port = await b.start();
+  const ws = await panel(port, ["pr_lento"]);
+  const t0 = Date.now();
+  const p = b.send("pr_lento", {}, { timeoutMs: 5000 });
+  await new Promise((r) => setTimeout(r, 50));
+  ws.close();
+  const r = await p;
+  assert.equal(r.error.code, "nao_conectado");
+  assert.ok(Date.now() - t0 < 2000);
+  await b.stop();
+});
