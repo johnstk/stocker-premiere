@@ -1,0 +1,20 @@
+{
+  "name": "stocker-premiere",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Ponte local Claude ↔ Premiere Pro (MCP stdio + painel UXP), contrato pr_*",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "stocker-premiere": "server/index.js"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "ws": "^8.22.0"
+  }
+}
