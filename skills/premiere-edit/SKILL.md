@@ -1,6 +1,6 @@
 ---
 name: premiere-edit
-description: How to edit an open Adobe Premiere Pro project through the stocker-premiere MCP tools (pr_*). Use when the user asks to read, build, change, color or export a Premiere sequence, place clips, add markers, apply effects or LUTs, or run an edit plan in Premiere.
+description: How to edit an open Adobe Premiere Pro project through the stocker-premiere MCP tools (pr_*). Use when the user asks to read, build, change, color or export a Premiere sequence, place clips, add markers, apply or copy effects, a color grade or LUTs, or run an edit plan in Premiere.
 ---
 
 # Editing Premiere with stocker-premiere
@@ -23,6 +23,7 @@ The `pr_*` tools talk to the "Stocker Premiere" UXP panel inside Premiere Pro (2
 - `pr_exportSequence` renders a file; it needs `confirmado: true`, so ask the user first.
 - Times accept seconds or `HH:MM:SS:FF` timecode. Clips are addressed as `{ track: "V1", clip: 1 }` (1-based).
 - Effects are matched by matchName (language-independent), e.g. `ADBE Gaussian Blur 2`; use `pr_findEffects` to look one up. Parameters can be addressed by index (`"#0"`).
+- To copy a grade, use `pr_copyEffect` with `from: { sequence, track, clip }` (the graded clip, any sequence) and the target `clips`. The default method (`componente`) clones the whole effect, Lumetri LUT, look and curves included, and leaves the source untouched; `metodo: "parametros"` copies only numeric parameters (Blob, LUT, look and curves cannot be read through the API). Default effect is `ADBE Lumetri`.
 - Input LUTs: read the LUT id from an already graded clip with `pr_getInputLut`, then apply it with `pr_setInputLut`.
 - Save with `pr_saveProject` only when the user wants the change kept.
 

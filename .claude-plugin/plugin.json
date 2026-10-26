@@ -1,6 +1,6 @@
 {
   "name": "stocker-premiere",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Edit Adobe Premiere Pro from Claude Code: local MCP server + UXP panel with pr_* tools (read projects and sequences, place clips, markers, effects, input LUTs, export).",
   "author": { "name": "Stocker Films" },
   "homepage": "https://github.com/johnstk/stocker-premiere",

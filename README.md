@@ -3,7 +3,7 @@
 Edit Adobe Premiere Pro from Claude Code. A local MCP server plus a Premiere UXP panel expose `pr_*`
 tools: read projects and sequences, duplicate and create sequences, import media, place clips, add
 markers, enable or disable clips, set scale, position, rotation and opacity (with keyframes), apply and
-tweak effects, copy input LUTs, export frames and videos, and run whole edit plans in one batch.
+tweak effects, copy a whole effect between clips (e.g. a Lumetri grade with its LUT and look), copy input LUTs, export frames and videos, and run whole edit plans in one batch.
 
 ```
 Claude Code ─stdio─> MCP server ─WebSocket 127.0.0.1:47321 (token)─> UXP panel ─> premierepro API
@@ -67,7 +67,7 @@ Use one of the two, not both: they would fight over port 47321.
 
 `pr_status`, `pr_getProjectState`, `pr_getSequenceState`, `pr_duplicateSequence`, `pr_createSequence`,
 `pr_importFiles`, `pr_placeClip`, `pr_addMarkers`, `pr_setClipEnabled`, `pr_setClipProperties`,
-`pr_findEffects`, `pr_applyEffect`, `pr_setEffectProperties`, `pr_getInputLut`, `pr_setInputLut`,
+`pr_findEffects`, `pr_applyEffect`, `pr_setEffectProperties`, `pr_copyEffect`, `pr_getInputLut`, `pr_setInputLut`,
 `pr_exportFrame`, `pr_exportSequence` (needs `confirmado: true`), `pr_saveProject`, `pr_applyEditPlan`
 (batch; stops at the first step that fails or does not verify).
 
@@ -95,7 +95,7 @@ MIT © 2026 Stocker Films
 Edite o Adobe Premiere Pro pelo Claude Code. Um servidor MCP local e um painel UXP no Premiere oferecem
 as ferramentas `pr_*`: ler projeto e sequências, duplicar e criar sequências, importar mídia, colocar
 clipes, marcadores, ligar e desligar clipes, escala, posição, rotação e opacidade (com keyframes),
-efeitos, LUT de entrada, exportar quadro e vídeo, e rodar um plano de edição inteiro em lote.
+efeitos, copiar um efeito inteiro entre clipes (o Lumetri com LUT e look), LUT de entrada, exportar quadro e vídeo, e rodar um plano de edição inteiro em lote.
 
 **Requisitos:** macOS com Premiere Pro 26.3 ou mais novo (testado no 26.5.2), Node 22 ou mais novo, Claude Code.
 
