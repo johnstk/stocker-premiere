@@ -1,0 +1,19 @@
+{
+  "manifestVersion": 5,
+  "id": "com.stockerfilms.premiere.ponte",
+  "name": "Stocker Premiere",
+  "version": "0.1.0",
+  "main": "index.html",
+  "host": [{ "app": "premierepro", "minVersion": "26.3.0" }],
+  "entrypoints": [
+    {
+      "type": "panel",
+      "id": "ponte",
+      "label": { "default": "Stocker Premiere" },
+      "minimumSize": { "width": 240, "height": 150 },
+      "preferredDockedSize": { "width": 300, "height": 190 },
+      "preferredFloatingSize": { "width": 320, "height": 210 }
+    }
+  ],
+  "requiredPermissions": { "network": { "domains": "all" } }
+}

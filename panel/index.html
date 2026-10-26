@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <style>
+    body { font-family: -apple-system, sans-serif; font-size: 12px; margin: 0; padding: 10px; color: #e8e8e8; background: #1e1e1e; }
+    .linha { margin-bottom: 6px; }
+    .ok { color: #7ee787; } .bad { color: #ff7b72; } .dim { color: #999; }
+    input { width: 100%; box-sizing: border-box; font-size: 11px; margin: 4px 0; }
+  </style>
+</head>
+<body>
+  <div class="linha">Ponte: <b id="estado" class="bad">iniciando…</b></div>
+  <div class="linha dim">Último comando: <span id="ultimo">—</span></div>
+  <div class="linha dim">Token (cole uma vez, de ~/Library/Application Support/stocker-premiere/token):</div>
+  <input id="token" type="password" placeholder="token de 48 caracteres" />
+  <button id="salvar">Salvar token e conectar</button>
+  <div class="linha dim" id="versao"></div>
+  <script src="index.js"></script>
+</body>
+</html>
