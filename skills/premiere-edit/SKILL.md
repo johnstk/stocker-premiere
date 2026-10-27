@@ -12,7 +12,15 @@ The `pr_*` tools talk to the "Stocker Premiere" UXP panel inside Premiere Pro (2
 1. Call `pr_status`. If it fails, ask the user to open Premiere and the panel
    (Window › UXP Plugins › Stocker Premiere) and to paste the token shown in
    `~/Library/Application Support/stocker-premiere/token` on first use.
-2. Only one Claude session can be connected to the panel at a time.
+2. Several Claude sessions can share the panel. `pr_status` shows `sessoes`, `papel` and `fila`.
+   When `sessoes` is 2 or more, always pass `sequence` (exact name) to every tool that edits,
+   including each step of `pr_applyEditPlan`: without it the command would hit the active
+   sequence, which may belong to another session, so the server refuses it. Commands from all
+   sessions run one at a time, and an edit plan runs whole without another session's commands in
+   between, so prefer one `pr_applyEditPlan` over many loose calls.
+3. If a command returns `nao_conectado` right after another session closed, the panel is
+   reconnecting to the new owner: wait a few seconds, re-read the sequence, then retry.
+   `ponte_ocupada` means a session on an old version owns the port; ask the user to restart it.
 
 ## Working rules
 

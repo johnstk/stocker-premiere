@@ -1,7 +1,7 @@
 "use strict";
 const { MARKER_COLORS } = require("../panel/lib/cores");
 
-const VERSION = "0.2.0";
+const VERSION = "0.3.0";
 
 const sequence = { type: "string", description: "Nome da sequência; omita para a ativa." };
 const time = { type: ["number", "string"], description: 'Segundos na timeline (ou timecode "HH:MM:SS:FF").' };
