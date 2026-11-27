@@ -5,6 +5,10 @@ const { secondsToTicks, ticksToSeconds, alignTicksToFrame, parseTime, roundSec }
 const { PonteError, ERR } = require("../lib/protocol");
 const { matchNameIs } = require("../lib/params");
 
+// Compartilhado por todos os módulos do painel (cada um chama makePpro). Só texto, nunca objeto do Premiere.
+const INDEX_TTL_MS = 5 * 60 * 1000;
+const projectIndex = { at: 0, items: null };
+
 module.exports = function makePpro(P) {
   const CLIP = P.Constants.TrackItemType.CLIP;
 
@@ -41,6 +45,31 @@ module.exports = function makePpro(P) {
     const track = kind === "V" ? await seq.getVideoTrack(index) : await seq.getAudioTrack(index);
     return await track.getTrackItems(CLIP, false);
   }
+  // Os clipes de uma trilha não se sobrepõem e vêm em ordem de tempo: busca binária em vez de ler todos.
+  // Cada getStartTime/getEndTime cria objetos nativos no UXP; ler a trilha inteira (1000+ clipes) derrubava o Premiere.
+  async function firstEndingAfter(items, t) {
+    let lo = 0, hi = items.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (sec(await items[mid].getEndTime()) <= t) lo = mid + 1; else hi = mid;
+    }
+    return lo;
+  }
+  // Índices (0-based) dos clipes que tocam [from, to), com início e fim já lidos.
+  async function itemsInRange(items, from, to) {
+    const out = [];
+    for (let j = from === -Infinity ? 0 : await firstEndingAfter(items, from); j < items.length; j++) {
+      const start = sec(await items[j].getStartTime());
+      if (start >= to) break;
+      const end = sec(await items[j].getEndTime());
+      if (end > from) out.push({ j, it: items[j], start, end });
+    }
+    return out;
+  }
+  // Clipes que começam em `time` (± meio quadro).
+  async function itemsStartingAt(items, time, frame) {
+    return (await itemsInRange(items, time - frame / 2 - 1e-6, time + frame / 2 + 1e-6)).filter((r) => Math.abs(r.start - time) <= frame / 2 + 1e-6);
+  }
   async function findClip(seq, ref) {
     if (!ref || !ref.track) throw new PonteError(ERR.BAD_INPUT, "clipe precisa de {track, clip} ou {track, time}");
     const items = await trackItems(seq, ref.track);
@@ -55,9 +84,8 @@ module.exports = function makePpro(P) {
     }
     if (ref.time !== undefined) {
       const t = parseTime(ref.time, await seq.getTimebase());
-      for (const it of items) {
-        if (t >= sec(await it.getStartTime()) && t < sec(await it.getEndTime())) return it;
-      }
+      const j = await firstEndingAfter(items, t);
+      if (j < items.length && t >= sec(await items[j].getStartTime())) return items[j];
       throw new PonteError(ERR.NOT_FOUND, `Nenhum clipe em ${ref.track} no tempo ${t}s.`);
     }
     throw new PonteError(ERR.BAD_INPUT, "clipe precisa de 'clip' (número 1-based ou nome) ou 'time'.");
@@ -98,13 +126,25 @@ module.exports = function makePpro(P) {
       try { await seq.clearSelection(); } catch (e) { /* sem seleção */ }
     }
   }
+  // Clona um clipe da timeline. O createCloneTrackItemAction do 27.1 Beta chama TrackItemSelection.createWithTrackItems,
+  // que não existe; aqui a seleção vem da sequência e a ação é a mesma createAddItemsAction que ele usaria.
+  async function cloneItem(p, seq, it, { offset = 0, video = 0, audio = 0, kind = "V", label = "stocker-premiere: clonar" } = {}) {
+    const editor = P.SequenceEditor.getEditor(seq);
+    try {
+      const sel = await newSelection(seq, [it]);
+      const mt = kind === "A" ? P.Constants.MediaType.AUDIO : P.Constants.MediaType.VIDEO;
+      tx(p, label, () => [editor.createAddItemsAction(sel, tickSeconds(offset), video, audio, false, true, true, mt)]);
+    } finally {
+      try { await seq.clearSelection(); } catch (e) { /* sem seleção */ }
+    }
+  }
   async function nodeIdOf(item) { try { return String(await item.getId()); } catch (e) { return null; } }
-  async function walkItems(folder, binPath, out, depth, maxDepth) {
+  async function walkItems(folder, binPath, out, depth, maxDepth, keep = true) {
     for (const k of await folder.getItems()) {
-      const base = { name: k.name, binPath, nodeId: await nodeIdOf(k), _item: k };
+      const base = { name: k.name, binPath, nodeId: await nodeIdOf(k), ...(keep ? { _item: k } : {}) };
       if (k.type === P.ProjectItem.TYPE_BIN) {
         out.push({ ...base, type: "bin" });
-        if (depth < maxDepth) await walkItems(P.FolderItem.cast(k), binPath ? `${binPath}/${k.name}` : k.name, out, depth + 1, maxDepth);
+        if (depth < maxDepth) await walkItems(P.FolderItem.cast(k), binPath ? `${binPath}/${k.name}` : k.name, out, depth + 1, maxDepth, keep);
         continue;
       }
       const c = P.ClipProjectItem.cast(k);
@@ -115,18 +155,59 @@ module.exports = function makePpro(P) {
       out.push({ ...base, type: isSeq ? "sequence" : "clip", mediaPath });
     }
   }
-  async function findProjectItem(p, ref) {
-    const all = [];
-    await walkItems(await p.getRootItem(), "", all, 0, 20);
-    const items = all.filter((i) => i.type !== "bin");
-    let hits = [];
-    if (ref && typeof ref === "object" && ref.nodeId) hits = items.filter((i) => i.nodeId === String(ref.nodeId));
-    else if (ref && typeof ref === "object" && ref.mediaPath) hits = items.filter((i) => i.mediaPath === ref.mediaPath);
-    else if (typeof ref === "string" && ref.includes("/")) hits = items.filter((i) => (i.binPath ? `${i.binPath}/${i.name}` : i.name) === ref || i.mediaPath === ref);
-    else if (typeof ref === "string") hits = items.filter((i) => i.name === ref);
-    if (hits.length === 0) throw new PonteError(ERR.NOT_FOUND, `Item '${JSON.stringify(ref)}' não está no projeto. Use pr_getProjectState ou pr_importFiles.`);
-    if (hits.length > 1) throw new PonteError(ERR.BAD_INPUT, `Há ${hits.length} itens '${JSON.stringify(ref)}'. Use {nodeId} ou o caminho "Bin/Nome". Candidatos: ${hits.slice(0, 5).map((h) => `${h.binPath}/${h.name} (${h.nodeId})`).join(", ")}`);
-    return hits[0];
+  // Índice só de texto (nada de objeto do Premiere) de onde está cada item: evita varrer o projeto inteiro a cada placeClip.
+  // Vale INDEX_TTL_MS; import/criar/duplicar invalidam. Um acerto no índice ainda é relido no bin antes de usar.
+  function invalidateIndex() { projectIndex.at = 0; projectIndex.items = null; }
+  async function binByPath(p, binPath) {
+    let folder = await p.getRootItem();
+    for (const name of String(binPath).split("/").filter(Boolean)) {
+      const child = (await folder.getItems()).find((k) => k.type === P.ProjectItem.TYPE_BIN && k.name === name);
+      if (!child) return null;
+      folder = P.FolderItem.cast(child);
+    }
+    return folder;
   }
-  return { project, sequence, tickSeconds, tickAligned, sec, parseTrack, trackItems, findClip, tx, componentByMatch, newSelection, removeSelected, nodeIdOf, walkItems, findProjectItem, CLIP };
+  function matches(i, ref) {
+    if (i.type === "bin") return false;
+    if (ref && typeof ref === "object" && ref.nodeId) return i.nodeId === String(ref.nodeId);
+    if (ref && typeof ref === "object" && ref.mediaPath) return i.mediaPath === ref.mediaPath;
+    if (typeof ref === "string" && ref.includes("/")) return (i.binPath ? `${i.binPath}/${i.name}` : i.name) === ref || i.mediaPath === ref;
+    if (typeof ref === "string") return i.name === ref;
+    return false;
+  }
+  async function fullIndex(p) {
+    if (!projectIndex.items || Date.now() - projectIndex.at > INDEX_TTL_MS) {
+      const all = [];
+      await walkItems(await p.getRootItem(), "", all, 0, 20, false);
+      projectIndex.items = all.filter((i) => i.type !== "bin");
+      projectIndex.at = Date.now();
+    }
+    return projectIndex.items;
+  }
+  async function findProjectItem(p, ref) {
+    const desc = JSON.stringify(ref);
+    let hits = (await fullIndex(p)).filter((i) => matches(i, ref));
+    if (hits.length === 0) { invalidateIndex(); hits = (await fullIndex(p)).filter((i) => matches(i, ref)); }
+    if (hits.length === 0) throw new PonteError(ERR.NOT_FOUND, `Item '${desc}' não está no projeto. Use pr_getProjectState ou pr_importFiles.`);
+    if (hits.length > 1) throw new PonteError(ERR.BAD_INPUT, `Há ${hits.length} itens '${desc}'. Use {nodeId} ou o caminho "Bin/Nome". Candidatos: ${hits.slice(0, 5).map((h) => `${h.binPath}/${h.name} (${h.nodeId})`).join(", ")}`);
+    // Relê só o bin do item e confere que ainda é ele.
+    for (let tentativa = 0; tentativa < 2; tentativa++) {
+      const h = hits[0];
+      const folder = await binByPath(p, h.binPath);
+      if (folder) {
+        for (const k of await folder.getItems()) {
+          if (k.type === P.ProjectItem.TYPE_BIN || k.name !== h.name) continue;
+          if (h.nodeId && (await nodeIdOf(k)) !== h.nodeId) continue;
+          return { ...h, _item: k };
+        }
+      }
+      if (tentativa === 0) {
+        invalidateIndex();
+        hits = (await fullIndex(p)).filter((i) => matches(i, ref));
+        if (hits.length !== 1) break;
+      }
+    }
+    throw new PonteError(ERR.NOT_FOUND, `Item '${desc}' não está mais onde estava no projeto. Tente de novo ou use pr_getProjectState.`);
+  }
+  return { cloneItem, project, sequence, tickSeconds, tickAligned, sec, parseTrack, trackItems, findClip, tx, componentByMatch, newSelection, removeSelected, nodeIdOf, walkItems, findProjectItem, invalidateIndex, firstEndingAfter, itemsInRange, itemsStartingAt, CLIP };
 };
