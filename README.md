@@ -76,12 +76,35 @@ on every track), `pr_openSequence`, `pr_closeSequence`, `pr_setPlayhead`, `pr_se
 `pr_setColorLabel`, `pr_rename`, `pr_moveToBin`, `pr_listTransitions`, `pr_addTransition`, `pr_setTrackMute`,
 `pr_exportTimeline` (FCP XML / OTIO), `pr_getCaptions`, `pr_inspectApi`, `pr_reloadPanel`.
 
-Not in the Premiere 27.1 API, so not here: caption text and style, track-mixer effects, clip speed, undo.
+Not in the Premiere 27.1 UXP API: captions, clip speed, undo, new tracks (see the ExtendScript bridge below). Track-mixer effects and caption styling are in neither.
 There is deliberately no tool that deletes sequences or project items.
 
 Premiere 27.1 notes: `createCloneTrackItemAction` is broken in the Beta (it calls a missing
 `TrackItemSelection.createWithTrackItems`); the panel builds the clone from the sequence selection instead. A
 track cannot hold overlapping clips, so cutting a clip goes through a free track of the same kind.
+
+## Second bridge: ExtendScript (since 0.5.0)
+
+The UXP API of Premiere 27.1 lacks some things that the older ExtendScript API (and its undocumented `qe` object)
+still does. The `cep/` folder is a small CEP panel, **Stocker Premiere ES**, that loads `cep/host.jsx` and serves the
+MCP server on `127.0.0.1:47322` (same token, no browser origins, one command at a time).
+
+Tools: `pr_esStatus`, `pr_undo`, `pr_redo`, `pr_addTracks`, `pr_removeTrack` (empty tracks only),
+`pr_importCaptions` (SRT to a caption track), `pr_unlinkClips`, `pr_linkClips`, `pr_setSpeed` (multiplier; timeline
+duration stays), `pr_insertMogrt`, `pr_mogrtText` (read or replace MOGRT text), `pr_esReload`, `pr_esScript`.
+
+Install: CEP debug mode must be on (`defaults write com.adobe.CSXS.12 PlayerDebugMode 1`, per CSXS version), then
+link the folder and restart Premiere:
+
+```bash
+ln -s ~/.claude/mcp-servers/stocker-premiere/cep ~/Library/Application\ Support/Adobe/CEP/extensions/com.stockerfilms.premiere.es
+```
+
+Open it with **Window › Extensions › Stocker Premiere ES** (Premiere lists CEP panels only once a project is open).
+After editing `host.jsx`, `pr_esReload` loads it without reopening the panel. Adobe is retiring ExtendScript, so this
+bridge will stop working in some future Premiere version; the UXP bridge does not depend on it.
+
+Still out of reach of both APIs: caption styling and track-mixer effects.
 
 ## Several Claude sessions at once
 
@@ -150,7 +173,8 @@ forem reiniciadas; enquanto uma delas for a dona, as novas recebem `ponte_ocupad
 
 Exportar vídeo exige `confirmado: true`. Desde a 0.4.0 a ponte corta (razor), apara, extrai/levanta trechos em todas
 as trilhas, remove e desloca clipes, abre/fecha sequência, mexe na agulha e no In/Out, revincula mídia (pasta inteira),
-pinta, renomeia, organiza em bins, põe transição, silencia trilha e exporta XML/OTIO. Fora da API do Premiere 27.1:
-texto e estilo de legenda, efeitos no mixer de trilha, velocidade e desfazer.
+pinta, renomeia, organiza em bins, põe transição, silencia trilha e exporta XML/OTIO. Desde a 0.5.0 a ponte ExtendScript
+(pasta `cep/`, painel Stocker Premiere ES) põe SRT como trilha de legenda, cria e tira trilhas, desfaz e refaz, muda
+velocidade, separa/junta áudio e vídeo e troca texto de MOGRT. Fora das duas: estilo de legenda e efeitos no mixer.
 
 Licença MIT © 2026 Stocker Films.

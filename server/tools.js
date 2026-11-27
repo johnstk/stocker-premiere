@@ -1,7 +1,7 @@
 "use strict";
 const { MARKER_COLORS } = require("../panel/lib/cores");
 
-const VERSION = "0.4.0";
+const VERSION = "0.5.0";
 
 const sequence = { type: "string", description: "Nome da sequência; omita para a ativa." };
 const time = { type: ["number", "string"], description: 'Segundos na timeline (ou timecode "HH:MM:SS:FF").' };
@@ -98,6 +98,27 @@ const TOOLS = [
     { sequence, outputPath: { type: "string" }, format: { type: "string", enum: ["fcpxml", "otio"] } }, ADD, ["outputPath"]),
   t("pr_getCaptions", "Ler legendas", "Lê as trilhas de legenda (C1, C2…) da sequência: quantos itens, tempos e o nome que a API dá a cada um. A API do Premiere 27.1 não deixa editar texto de legenda nem pôr SRT na timeline.",
     { sequence, maxItems: { type: "integer" } }, RO),
+  // Segunda ponte (ExtendScript, painel CEP "Stocker Premiere ES"): o que a API UXP não tem.
+  t("pr_esStatus", "Estado da ponte ES", "Diz se o painel Stocker Premiere ES (ExtendScript) está aberto, a versão do Premiere e se o QE responde.", {}, RO),
+  t("pr_undo", "Desfazer", "Desfaz n passos no Premiere (como Cmd+Z). O histórico é um só para todas as sessões e para o usuário: desfaça só logo depois da sua própria ação.",
+    { n: { type: "integer" } }, EDIT),
+  t("pr_redo", "Refazer", "Refaz n passos desfeitos.", { n: { type: "integer" } }, EDIT),
+  t("pr_addTracks", "Criar trilhas", "Acrescenta trilhas de vídeo e/ou de áudio (estéreo) no fim da sequência.",
+    { sequence, video: { type: "integer" }, audio: { type: "integer" } }, EDIT),
+  t("pr_removeTrack", "Remover trilha vazia", "Tira uma trilha vazia (V ou A). Recusa trilha com clipe.", { sequence, track: { type: "string" } }, EDIT, ["track"]),
+  t("pr_importCaptions", "Legenda por SRT", "Importa um .srt e cria uma trilha de legenda na sequência a partir dele (start em segundos, padrão 0). Para trocar texto de legenda: corrija o SRT e importe de novo (desligue a trilha antiga com pr_setTrackMute não vale para legenda; avise o usuário).",
+    { sequence, srt: { type: "string" }, start: { type: "number" }, formato: { type: "string", enum: ["subtitle", "608", "708"] } }, EDIT, ["srt"]),
+  t("pr_unlinkClips", "Desvincular áudio e vídeo", "Separa o áudio do vídeo dos clipes (como Desvincular).", { sequence, clips }, EDIT, ["clips"]),
+  t("pr_linkClips", "Vincular áudio e vídeo", "Vincula os clipes passados (vídeo + áudio).", { sequence, clips }, EDIT, ["clips"]),
+  t("pr_mogrtText", "Texto de MOGRT", "Lê ou troca o texto de um gráfico MOGRT (legenda animada, lower third) na timeline. Sem text: só lê os campos. campo escolhe qual (padrão: todos).",
+    { sequence, clip: clipRef, text: { type: "string" }, campo: { type: "integer" } }, EDIT, ["clip"]),
+  t("pr_insertMogrt", "Inserir MOGRT", "Põe um .mogrt na trilha de vídeo num tempo, com texto e duração opcionais.",
+    { sequence, path: { type: "string" }, time, track: { type: "string" }, text: { type: "string" }, duration: { type: "number" } }, EDIT, ["path"]),
+  t("pr_setSpeed", "Velocidade do clipe", "Muda a velocidade de clipes: speed é multiplicador (0.5 = 50% câmera lenta, 2 = 200%). A duração na timeline fica igual, então muda o trecho da fonte mostrado; se a mídia acabar antes, o clipe encurta. reverse:true toca de trás para frente; keepPitch (padrão true) mantém o tom do áudio. Áudio vinculado: aplique também no clipe de áudio.",
+    { sequence, clips, speed: { type: "number" }, reverse: { type: "boolean" }, keepPitch: { type: "boolean" } }, EDIT, ["clips", "speed"]),
+  t("pr_esReload", "Recarregar o script ES", "Recarrega o host.jsx da ponte ES depois de mudar o código, sem reabrir o painel.", {}, ADD),
+  t("pr_esScript", "Rodar ExtendScript (modo livre)", "Roda ExtendScript no Premiere (app, qe depois de app.enableQE(), helpers _seq(nome), _clip(seq, {track, clip}), _j). O valor da última expressão volta (objeto simples). Para o que nenhuma tool cobre; diga o que mudou.",
+    { code: { type: "string" } }, EDIT, ["code"]),
   t("pr_exportFrame", "Ver um quadro", "Renderiza o quadro num tempo (padrão: playhead) e devolve a imagem (PNG, 1280 px de largura por padrão). Use depois de mudanças visuais.",
     { sequence, time, width: { type: "integer" }, height: { type: "integer" } }, RO),
   t("pr_exportSequence", "Exportar vídeo", "Exporta a sequência com um preset (.epr): modo 'agora' (renderiza no Premiere) ou 'fila_ame' (manda para o Media Encoder). Só com aprovação explícita do usuário: exige confirmado:true.",
@@ -106,7 +127,7 @@ const TOOLS = [
 
 const TOOL_NAMES = new Set(TOOLS.map((x) => x.name));
 const EDIT_PLAN_ALLOWED = new Set(["pr_getProjectState", "pr_getSequenceState", "pr_importFiles", "pr_createSequence", "pr_duplicateSequence",
-  "pr_placeClip", "pr_moveClip", "pr_setClipEnabled", "pr_addMarkers", "pr_setClipProperties", "pr_applyEffect", "pr_applyAudioEffect", "pr_setEffectProperties", "pr_setInputLut", "pr_copyEffect", "pr_trimClip", "pr_razor", "pr_removeClips", "pr_shiftClips", "pr_removeRange", "pr_openSequence", "pr_setPlayhead", "pr_setSequenceInOut", "pr_setColorLabel", "pr_rename", "pr_moveToBin", "pr_addTransition", "pr_setTrackMute"]);
+  "pr_placeClip", "pr_moveClip", "pr_setClipEnabled", "pr_addMarkers", "pr_setClipProperties", "pr_applyEffect", "pr_applyAudioEffect", "pr_setEffectProperties", "pr_setInputLut", "pr_copyEffect", "pr_trimClip", "pr_razor", "pr_removeClips", "pr_shiftClips", "pr_removeRange", "pr_openSequence", "pr_setPlayhead", "pr_setSequenceInOut", "pr_setColorLabel", "pr_rename", "pr_moveToBin", "pr_addTransition", "pr_setTrackMute", "pr_addTracks", "pr_removeTrack", "pr_importCaptions", "pr_unlinkClips", "pr_linkClips", "pr_mogrtText", "pr_insertMogrt", "pr_setSpeed"]);
 const TIMEOUTS = { pr_importFiles: 300000, pr_createSequence: 120000, pr_duplicateSequence: 120000, pr_exportSequence: 3600000 };
 function timeoutFor(name) { return TIMEOUTS[name] || 90000; }
 
@@ -119,7 +140,7 @@ const INSTRUCTIONS = `stocker-premiere liga o Claude ao Premiere Pro do usuário
 6. Junte passos com pr_applyEditPlan; confira o visual com pr_exportFrame.
 7. pr_saveProject e pr_exportSequence só com pedido explícito do usuário (o export exige confirmado:true).
 8. Cada passo lógico vira um ou mais passos de desfazer no Premiere (colocar um trecho usa 3). Diga o que mudou.
-9. Antes de controlar a tela, procure a tool: cortar/aparar/extrair (pr_razor, pr_trimClip, pr_removeRange, pr_removeClips, pr_shiftClips), abrir sequência, agulha e In/Out, revincular (pr_relinkMedia), cor/nome/bin, transição, mute e XML já são pela ponte. Pela tela só sobra: texto e estilo de legenda, efeitos no mixer de trilha, velocidade, desfazer.
+9. Antes de controlar a tela, procure a tool: cortar/aparar/extrair (pr_razor, pr_trimClip, pr_removeRange, pr_removeClips, pr_shiftClips), abrir sequência, agulha e In/Out, revincular (pr_relinkMedia), cor/nome/bin, transição, mute e XML já são pela ponte. Legenda por SRT, trilhas, desfazer, unlink e texto de MOGRT vão pela ponte ES (pr_esStatus diz se está aberta). Velocidade também (pr_setSpeed). Pela tela só sobra: estilo de legenda e efeitos no mixer de trilha.
 10. pr_inspectApi mostra a API viva do Premiere quando faltar uma tool.`;
 
 module.exports = { VERSION, TOOLS, TOOL_NAMES, EDIT_PLAN_ALLOWED, timeoutFor, INSTRUCTIONS };

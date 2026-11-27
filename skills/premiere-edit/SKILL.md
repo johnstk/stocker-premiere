@@ -52,7 +52,15 @@ The `pr_*` tools talk to the "Stocker Premiere" UXP panel inside Premiere Pro (2
   is none, the tool says so and the user adds an empty track.
 - `pr_inspectApi` lists the live premierepro API when something seems missing; `pr_reloadPanel` reloads the panel.
 
-## Not available in the Premiere API (27.1)
+## ExtendScript bridge (0.5.0)
 
-Caption text and style (and placing an SRT on a caption track), effects on the track mixer, clip speed, undo/history,
-and deleting sequences or project items (deliberately). Say so instead of improvising; the user can do these by hand.
+`pr_esStatus` says whether the Stocker Premiere ES panel is open. It adds `pr_undo`/`pr_redo` (the History is shared
+with the user and other sessions: undo only right after your own step), `pr_addTracks`, `pr_removeTrack`,
+`pr_importCaptions` (SRT to caption track; to fix caption text, fix the SRT and import again), `pr_unlinkClips`,
+`pr_linkClips`, `pr_setSpeed` (multiplier, duration stays), `pr_insertMogrt`, `pr_mogrtText`, `pr_esScript`.
+If it is closed: Window › Extensions › Stocker Premiere ES.
+
+## Not available in either API (27.1)
+
+Caption styling (font, size, track style), effects on the track mixer, and deleting sequences or project items
+through a named tool (deliberately). Say so instead of improvising; the user can do these by hand.

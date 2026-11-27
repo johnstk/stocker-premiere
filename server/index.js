@@ -11,6 +11,7 @@ const { loadOrCreateToken } = require("./token");
 const { TOOLS, TOOL_NAMES, EDIT_PLAN_ALLOWED, timeoutFor, INSTRUCTIONS, VERSION } = require("./tools");
 const { validatePlan, runPlan } = require("./plan");
 const { ERR } = require("../panel/lib/protocol");
+const { ES_TOOLS, esCall } = require("./es");
 
 const FRAME_DIR = path.join(os.tmpdir(), "stocker-premiere");
 // Tools que mudam o projeto e, sem 'sequence', agem na sequência ativa. Com duas sessões ou mais, a
@@ -68,7 +69,7 @@ function erroSequence(onde, n) {
   return { ok: false, error: { code: ERR.BAD_INPUT, message: `${onde}: com ${n} sessões do Claude no mesmo Premiere, diga a sequência em 'sequence' (nome exato). Sem ela, o comando cairia na sequência ativa, que pode ser a de outra sessão.` } };
 }
 
-function createHandlers({ bridge, startError = null, frameDir = FRAME_DIR, exportPollMs = 1000, exportStableCount = 5, exportMaxMs = 55 * 60 * 1000 }) {
+function createHandlers({ bridge, esToken = null, startError = null, frameDir = FRAME_DIR, exportPollMs = 1000, exportStableCount = 5, exportMaxMs = 55 * 60 * 1000 }) {
   async function callTool(name, args) {
     if (startError) return { ok: false, error: { code: startError.code || ERR.BUSY, message: startError.message } };
     args = args || {};
@@ -79,6 +80,10 @@ function createHandlers({ bridge, startError = null, frameDir = FRAME_DIR, expor
       if (!bridge.isConnected()) return { ok: true, data: { conectado: false, servidor: VERSION, ...ponte, dica: (bridge.erro && bridge.erro()) || "No Premiere: Janela > Plug-ins UXP > Stocker Premiere, e confira o token no painel." } };
       const r = await bridge.send("pr_status", {}, { timeoutMs: timeoutFor("pr_status") });
       return r.ok ? { ok: true, data: { conectado: true, servidor: VERSION, ...ponte, ...r.data } } : r;
+    }
+    if (ES_TOOLS[name]) {
+      if (sessoes > 1 && semSequence(name, args)) return erroSequence(name, sessoes);
+      return esCall(ES_TOOLS[name], args, { token: esToken || loadOrCreateToken(), timeoutMs: timeoutFor(name) });
     }
     if (name === "pr_applyEditPlan") {
       let plan;
