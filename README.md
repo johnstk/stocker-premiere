@@ -66,13 +66,22 @@ Use one of the two, not both: the session would get every tool twice.
 ## Tools
 
 `pr_status`, `pr_getProjectState`, `pr_getSequenceState`, `pr_duplicateSequence`, `pr_createSequence`,
-`pr_importFiles`, `pr_placeClip`, `pr_addMarkers`, `pr_setClipEnabled`, `pr_setClipProperties`,
-`pr_findEffects`, `pr_applyEffect`, `pr_setEffectProperties`, `pr_copyEffect`, `pr_getInputLut`, `pr_setInputLut`,
-`pr_exportFrame`, `pr_exportSequence` (needs `confirmado: true`), `pr_saveProject`, `pr_applyEditPlan`
+`pr_importFiles`, `pr_placeClip`, `pr_moveClip`, `pr_addMarkers`, `pr_setClipEnabled`, `pr_setClipProperties`,
+`pr_findEffects`, `pr_applyEffect`, `pr_applyAudioEffect`, `pr_setEffectProperties`, `pr_copyEffect`, `pr_getInputLut`,
+`pr_setInputLut`, `pr_exportFrame`, `pr_exportSequence` (needs `confirmado: true`), `pr_saveProject`, `pr_applyEditPlan`
 (batch; stops at the first step that fails or does not verify).
 
-Not available yet: razor, trim, moving or removing clips, removing a range, transitions, graphics,
-captions, bins, opening a sequence. There is deliberately no tool that deletes sequences or project items.
+Since 0.4.0: `pr_razor`, `pr_trimClip`, `pr_removeClips`, `pr_shiftClips`, `pr_removeRange` (extract or lift a range
+on every track), `pr_openSequence`, `pr_closeSequence`, `pr_setPlayhead`, `pr_setSequenceInOut`, `pr_relinkMedia`,
+`pr_setColorLabel`, `pr_rename`, `pr_moveToBin`, `pr_listTransitions`, `pr_addTransition`, `pr_setTrackMute`,
+`pr_exportTimeline` (FCP XML / OTIO), `pr_getCaptions`, `pr_inspectApi`, `pr_reloadPanel`.
+
+Not in the Premiere 27.1 API, so not here: caption text and style, track-mixer effects, clip speed, undo.
+There is deliberately no tool that deletes sequences or project items.
+
+Premiere 27.1 notes: `createCloneTrackItemAction` is broken in the Beta (it calls a missing
+`TrackItemSelection.createWithTrackItems`); the panel builds the clone from the sequence selection instead. A
+track cannot hold overlapping clips, so cutting a clip goes through a free track of the same kind.
 
 ## Several Claude sessions at once
 
@@ -139,7 +148,9 @@ volta `nao_conectado`: releia antes de repetir). Com duas sessões ou mais, as t
 (`dona` ou `cliente`) e `fila`. Sessões abertas antes da atualização só pegam o código novo quando
 forem reiniciadas; enquanto uma delas for a dona, as novas recebem `ponte_ocupada`.
 
-Exportar vídeo exige `confirmado: true`. Ainda não tem razor, trim,
-mover/remover clipe, transições, gráficos, legendas, bins nem abrir sequência.
+Exportar vídeo exige `confirmado: true`. Desde a 0.4.0 a ponte corta (razor), apara, extrai/levanta trechos em todas
+as trilhas, remove e desloca clipes, abre/fecha sequência, mexe na agulha e no In/Out, revincula mídia (pasta inteira),
+pinta, renomeia, organiza em bins, põe transição, silencia trilha e exporta XML/OTIO. Fora da API do Premiere 27.1:
+texto e estilo de legenda, efeitos no mixer de trilha, velocidade e desfazer.
 
 Licença MIT © 2026 Stocker Films.

@@ -35,7 +35,24 @@ The `pr_*` tools talk to the "Stocker Premiere" UXP panel inside Premiere Pro (2
 - Input LUTs: read the LUT id from an already graded clip with `pr_getInputLut`, then apply it with `pr_setInputLut`.
 - Save with `pr_saveProject` only when the user wants the change kept.
 
-## Not available yet
+## Timeline editing (0.4.0)
 
-Razor, trim, moving or removing clips, removing a range, transitions, graphics, captions, creating bins,
-opening a sequence and deleting anything. Say so instead of improvising; the user can do these by hand.
+- Cut and trim: `pr_razor` (cut every track at a time, effects kept), `pr_trimClip` (move an edge; in Premiere 27.1 the
+  timeline edge and the source point move together, and linked audio does not follow, so trim each track).
+- Remove: `pr_removeRange` takes `[from, to)` out of all (or some) tracks, like In/Out + Extract (`ripple: true`, the
+  default, closes the gap and moves later markers) or Lift (`ripple: false`). `pr_removeClips` removes clips;
+  `ripple: true` closes the gap only on each clip's own track.
+- Move: `pr_shiftClips` (time offset, same track), `pr_moveClip` (another track, same time).
+- Sequence: `pr_openSequence`, `pr_closeSequence`, `pr_setPlayhead`, `pr_setSequenceInOut` (in/out for exports).
+- Project: `pr_relinkMedia` (`fromDir`/`toDir` relinks a whole folder; run with `dryRun: true` first),
+  `pr_setColorLabel`, `pr_rename`, `pr_moveToBin`.
+- `pr_addTransition` (video only; `pr_listTransitions` for matchNames), `pr_setTrackMute`, `pr_exportTimeline`
+  (FCP XML or OTIO, handy to read a whole cut), `pr_getCaptions` (read-only).
+- Cutting needs a free track of the same kind over the clip (the API cannot overlap clips on one track); if there
+  is none, the tool says so and the user adds an empty track.
+- `pr_inspectApi` lists the live premierepro API when something seems missing; `pr_reloadPanel` reloads the panel.
+
+## Not available in the Premiere API (27.1)
+
+Caption text and style (and placing an SRT on a caption track), effects on the track mixer, clip speed, undo/history,
+and deleting sequences or project items (deliberately). Say so instead of improvising; the user can do these by hand.

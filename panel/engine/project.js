@@ -28,10 +28,11 @@ module.exports = (P) => {
     const target = input.bin ? await ensureBin(p, input.bin) : await p.getRootItem();
     const ids = async () => {
       const all = [];
-      await x.walkItems(target, input.bin || "", all, 0, 0);
+      await x.walkItems(target, input.bin || "", all, 0, 0, false);
       return all;
     };
     const antes = new Set((await ids()).map((i) => i.nodeId));
+    x.invalidateIndex();
     const ok = await p.importFiles(paths, true, target, false);
     if (!ok) throw new PonteError(ERR.PREMIERE, "O Premiere recusou o import (importFiles devolveu false).");
     const novos = (await ids()).filter((i) => !antes.has(i.nodeId) && i.mediaPath);
@@ -64,6 +65,7 @@ module.exports = (P) => {
     const items = [];
     for (const ref of input.fromItems) items.push(P.ClipProjectItem.cast((await x.findProjectItem(p, ref))._item));
     const target = input.bin ? await ensureBin(p, input.bin) : await p.getInsertionBin();
+    x.invalidateIndex();
     const seq = await p.createSequenceFromMedia(input.name, items, target);
     if (!seq) throw new PonteError(ERR.PREMIERE, "createSequenceFromMedia não devolveu a sequência.");
     if (input.empty) await removeAllTrackItems(p, seq);
@@ -93,6 +95,7 @@ module.exports = (P) => {
       return m;
     };
     const before = await ids();
+    x.invalidateIndex();
     x.tx(p, `stocker-premiere: duplicar ${seq.name}`, () => [seq.createCloneAction()]);
     const after = await ids();
     const novo = [...after.entries()].find(([id]) => !before.has(id));

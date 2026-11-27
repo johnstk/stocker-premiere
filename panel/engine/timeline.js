@@ -13,9 +13,7 @@ module.exports = (P) => {
     const out = [];
     let items = [];
     try { items = await x.trackItems(seq, label); } catch (e) { return out; }
-    for (const it of items) {
-      const st = x.sec(await it.getStartTime());
-      if (Math.abs(st - time) > frame / 2 + 1e-6) continue;
+    for (const { it, start: st } of await x.itemsStartingAt(items, time, frame)) {
       let pid = null;
       try { pid = await x.nodeIdOf(await it.getProjectItem()); } catch (e) { pid = null; }
       out.push({ it, key: `${st}|${pid}|${await it.getName()}` });
@@ -71,13 +69,11 @@ module.exports = (P) => {
     } finally {
       if (hasRange) x.tx(p, "stocker-premiere: restaurar in/out do item", () => [clip.createSetInOutPointsAction(origIn, origOut)]);
     }
+    // Confere só os clipes que começam em `time` (busca binária), não a trilha inteira.
     const items = await x.trackItems(seq, `V${v.index + 1}`);
-    const startsAt = (it) => it.then((t) => Math.abs(x.sec(t) - time) <= frame / 2 + 1e-6);
-    for (let j = 0; j < items.length; j++) {
-      const it = items[j];
-      if (!(await startsAt(it.getStartTime()))) continue;
+    for (const { j, it, start, end } of await x.itemsStartingAt(items, time, frame)) {
       const res = {
-        track: `V${v.index + 1}`, clip: j + 1, start: x.sec(await it.getStartTime()), end: x.sec(await it.getEndTime()),
+        track: `V${v.index + 1}`, clip: j + 1, start, end,
         sourceIn: x.sec(await it.getInPoint()), sourceOut: x.sec(await it.getOutPoint()), audioTrack: aIndex === -1 ? null : `A${aIndex + 1}`,
       };
       const diffs = [];
@@ -120,9 +116,7 @@ module.exports = (P) => {
       const rotA = `A${aIndex + 1}`;
       let itensA = [];
       try { itensA = await x.trackItems(seq, rotA); } catch (e) { itensA = []; }
-      for (let j = 0; j < itensA.length; j++) {
-        const it = itensA[j];
-        if (!(await startsAt(it.getStartTime()))) continue;
+      for (const { j, it, start, end } of await x.itemsStartingAt(itensA, time, frame)) {
         let mesmo = null;
         try {
           const pi = await it.getProjectItem();
@@ -135,7 +129,7 @@ module.exports = (P) => {
         } catch (e) { mesmo = null; }
         if (mesmo !== true) continue;
         const res = {
-          track: rotA, clip: j + 1, start: x.sec(await it.getStartTime()), end: x.sec(await it.getEndTime()),
+          track: rotA, clip: j + 1, start, end,
           sourceIn: x.sec(await it.getInPoint()), sourceOut: x.sec(await it.getOutPoint()), audioTrack: rotA, somenteAudio: true,
         };
         const diffs = [];
@@ -217,5 +211,50 @@ module.exports = (P) => {
     return res;
   }
 
-  return { pr_placeClip, pr_setClipEnabled, pr_addMarkers };
+  // Move clipes para outra trilha do mesmo tipo, no mesmo tempo: clona com o deslocamento vertical (leva volume,
+  // efeitos e nome) e tira o original. A trilha de destino precisa estar livre no intervalo do clipe.
+  async function pr_moveClip(input) {
+    const refs = input.clips || [];
+    if (!refs.length || !input.toTrack) throw new PonteError(ERR.BAD_INPUT, "clips e toTrack são obrigatórios.");
+    const p = await x.project();
+    const seq = await x.sequence(p, input.sequence);
+    const tb = await seq.getTimebase();
+    const frame = 1 / fpsFromTimebase(tb);
+    const dest = x.parseTrack(input.toTrack);
+    const alvo = [];
+    for (const ref of refs) {
+      const src = x.parseTrack(ref.track);
+      if (src.kind !== dest.kind) throw new PonteError(ERR.BAD_INPUT, `Não dá para mover de ${ref.track} para ${input.toTrack}: tipos de trilha diferentes.`);
+      const it = await x.findClip(seq, ref);
+      alvo.push({ ref, it, src, nome: await it.getName(), ini: x.sec(await it.getStartTime()), fim: x.sec(await it.getEndTime()) });
+    }
+    const editor = P.SequenceEditor.getEditor(seq);
+    const resultados = [];
+    for (const a of alvo) {
+      const label = `${dest.kind}${a.src.index + 1}`;
+      const destLabel = `${dest.kind}${dest.index + 1}`;
+      if (a.src.index === dest.index) { resultados.push({ clip: a.ref, nome: a.nome, track: destLabel, verificado: true }); continue; }
+      const ocupado = [];
+      for (const { it: o, start: oi, end: of } of await x.itemsInRange(await x.trackItems(seq, destLabel), a.ini + frame / 2, a.fim - frame / 2)) {
+        ocupado.push(`${await o.getName()} (${oi}–${of})`);
+      }
+      if (ocupado.length) { resultados.push({ clip: a.ref, nome: a.nome, verificado: false, erro: `${destLabel} ocupada no intervalo: ${ocupado.join(", ")}` }); continue; }
+      const delta = dest.index - a.src.index;
+      await x.cloneItem(p, seq, a.it, { video: dest.kind === "V" ? delta : 0, audio: dest.kind === "A" ? delta : 0, kind: dest.kind, label: `stocker-premiere: mover ${a.nome} para ${destLabel}` });
+      let novo = null;
+      for (const { it: o } of await x.itemsStartingAt(await x.trackItems(seq, destLabel), a.ini, frame)) {
+        if ((await o.getName()) === a.nome) { novo = o; break; }
+      }
+      if (!novo) { resultados.push({ clip: a.ref, nome: a.nome, verificado: false, erro: `o clone não apareceu em ${destLabel}; o original ficou em ${label}` }); continue; }
+      await x.removeSelected(p, seq, [a.it], dest.kind === "A" ? P.Constants.MediaType.AUDIO : P.Constants.MediaType.VIDEO, `stocker-premiere: tirar o original de ${a.nome}`);
+      let sobrou = false;
+      for (const { it: o } of await x.itemsStartingAt(await x.trackItems(seq, label), a.ini, frame)) {
+        if ((await o.getName()) === a.nome) { sobrou = true; break; }
+      }
+      resultados.push({ clip: a.ref, nome: a.nome, track: destLabel, inicio: a.ini, verificado: !sobrou, erro: sobrou ? `o original continua em ${label}` : undefined });
+    }
+    return { resultados, verificado: resultados.every((r) => r.verificado) };
+  }
+
+  return { pr_placeClip, pr_setClipEnabled, pr_addMarkers, pr_moveClip };
 };

@@ -58,7 +58,12 @@ async function waitStable(p, { interval, stable, max, baseline = null }) {
   return null;
 }
 
-function semSequence(tool, input) { return SEQ_OBRIGATORIA.has(tool) && !(input && typeof input.sequence === "string" && input.sequence.trim()); }
+// Tools que só tocam a timeline quando recebem estes campos (sem eles, mexem só no projeto).
+const SEQ_SO_COM = { pr_setColorLabel: ["clips"], pr_rename: ["clip", "track"] };
+function semSequence(tool, input) {
+  if (SEQ_SO_COM[tool] && !SEQ_SO_COM[tool].some((k) => input && input[k] !== undefined)) return false;
+  return SEQ_OBRIGATORIA.has(tool) && !(input && typeof input.sequence === "string" && input.sequence.trim());
+}
 function erroSequence(onde, n) {
   return { ok: false, error: { code: ERR.BAD_INPUT, message: `${onde}: com ${n} sessões do Claude no mesmo Premiere, diga a sequência em 'sequence' (nome exato). Sem ela, o comando cairia na sequência ativa, que pode ser a de outra sessão.` } };
 }

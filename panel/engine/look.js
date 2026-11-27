@@ -179,20 +179,65 @@ module.exports = (P) => {
     throw new PonteError(ERR.BAD_INPUT, `Parâmetro '${key}' não existe. Use '#índice'. Nomes: ${lista()}`);
   }
 
+  async function componentName(c) {
+    try { return String(await c.getDisplayName()); } catch (e) { return ""; }
+  }
+
+  // Componente do próprio clipe pelo matchName ou pelo nome exibido (serve para os de áudio, fora do catálogo de vídeo).
+  async function componentOfClip(trackItem, want, occurrence = 1) {
+    const chain = await trackItem.getComponentChain();
+    const w = String(want).trim().toLowerCase();
+    let seen = 0;
+    for (let i = 0; i < (await chain.getComponentCount()); i++) {
+      const c = await chain.getComponentAtIndex(i);
+      const m = String(await c.getMatchName()).toLowerCase();
+      if ((m === w || m.endsWith("." + w) || (await componentName(c)).toLowerCase() === w) && ++seen === occurrence) return { chain, component: c, index: i };
+    }
+    return { chain, component: null, index: -1 };
+  }
+
+  async function componentList(trackItem) {
+    const chain = await trackItem.getComponentChain();
+    const out = [];
+    for (let i = 0; i < (await chain.getComponentCount()); i++) {
+      const c = await chain.getComponentAtIndex(i);
+      const params = [];
+      for (let j = 0; j < c.getParamCount(); j++) {
+        let v = "";
+        try { v = JSON.stringify(asArr((await c.getParam(j).getValueAtTime(x.tickSeconds(0))).value)); } catch (e) { v = "?"; }
+        // Parâmetro animado: lista os keyframes (segundos da fonte: valor) para não apagá-los sem saber.
+        try {
+          const prm = c.getParam(j);
+          if (prm.isTimeVarying()) {
+            const kfs = [];
+            for (const t of await prm.getKeyframeListAsTickTimes()) kfs.push(`${(Number(t.ticksNumber) / 254016000000).toFixed(2)}s:${JSON.stringify(asArr((await prm.getValueAtTime(t)).value))}`);
+            v += ` [animado ${kfs.join(" ")}]`;
+          }
+        } catch (e) { v += " [animado ?]"; }
+        params.push(`#${j} ${c.getParam(j).displayName}=${v}`);
+      }
+      out.push(`${await c.getMatchName()} (${await componentName(c)}: ${params.join(", ")})`);
+    }
+    return out.join("; ");
+  }
+
   async function pr_setEffectProperties(input) {
     const refs = input.clips || [];
     const params = input.params || {};
     if (!refs.length || !Object.keys(params).length) throw new PonteError(ERR.BAD_INPUT, "clips e params são obrigatórios.");
     const want = String(input.effect || "");
-    const mn = /ADBE (Motion|Opacity)$/.test(want) ? want : await resolveEffect(want);
+    // Efeito de vídeo pelo catálogo; se não estiver lá (o Volume dos clipes de áudio, por exemplo), procura no próprio clipe.
+    let mn = null;
+    if (/ADBE (Motion|Opacity)$/.test(want)) mn = want;
+    else { try { mn = await resolveEffect(want); } catch (e) { if (!(e instanceof PonteError)) throw e; } }
     const occ = input.occurrence || 1;
     const p = await x.project();
     const seq = await x.sequence(p, input.sequence);
     const resultados = [];
     for (const ref of refs) {
       const it = await x.findClip(seq, ref);
-      const r = await x.componentByMatch(it, mn, occ);
-      if (!r.component) throw new PonteError(ERR.NOT_FOUND, `O clipe não tem ${mn} (ocorrência ${occ}). Aplique com pr_applyEffect.`);
+      const r = mn ? await x.componentByMatch(it, mn, occ) : await componentOfClip(it, want, occ);
+      if (!r.component) throw new PonteError(ERR.NOT_FOUND, `O clipe não tem ${mn || want} (ocorrência ${occ}). Componentes do clipe: ${await componentList(it)}`);
       const pairs = Object.entries(params).map(([k, v]) => [k, paramIndex(r.component, k), v]);
       x.tx(p, `stocker-premiere: ajustar ${mn}`, () => {
         const acts = [];
@@ -203,7 +248,7 @@ module.exports = (P) => {
         }
         return acts;
       });
-      const fresh = (await x.componentByMatch(it, mn, occ)).component;
+      const fresh = (mn ? await x.componentByMatch(it, mn, occ) : await componentOfClip(it, want, occ)).component;
       const valores = {};
       let ok = true;
       for (const [k, idx, v] of pairs) {
@@ -218,5 +263,25 @@ module.exports = (P) => {
     return { resultados, verificado: resultados.every((r) => r.verificado) };
   }
 
-  return { pr_setClipProperties, pr_findEffects, pr_applyEffect, pr_setEffectProperties };
+  // Efeito de áudio pelo nome exibido (Simple Parametric EQ, Highpass, Mastering…), num ou mais clipes de áudio.
+  async function pr_applyAudioEffect(input) {
+    const refs = input.clips || [];
+    if (!P.AudioFilterFactory) throw new PonteError(ERR.PREMIERE, "Esta versão do Premiere não expõe AudioFilterFactory.");
+    if (input.listar) return { efeitos: await P.AudioFilterFactory.getDisplayNames() };
+    if (!refs.length || !input.effect) throw new PonteError(ERR.BAD_INPUT, "clips e effect são obrigatórios (ou listar:true).");
+    const p = await x.project();
+    const seq = await x.sequence(p, input.sequence);
+    let certos = 0;
+    for (const ref of refs) {
+      const it = await x.findClip(seq, ref);
+      const comp = await P.AudioFilterFactory.createComponentByDisplayName(input.effect, it);
+      const chain = await it.getComponentChain();
+      const antes = await chain.getComponentCount();
+      x.tx(p, `stocker-premiere: aplicar ${input.effect}`, () => [chain.createAppendComponentAction(comp)]);
+      if ((await (await it.getComponentChain()).getComponentCount()) === antes + 1) certos++;
+    }
+    return { aplicados: refs.length, efeito: input.effect, verificado: certos === refs.length };
+  }
+
+  return { pr_setClipProperties, pr_findEffects, pr_applyEffect, pr_setEffectProperties, pr_applyAudioEffect };
 };
