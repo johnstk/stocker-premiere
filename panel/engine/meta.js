@@ -62,10 +62,26 @@ module.exports = (P) => {
     return { path: alvo, valor: v };
   }
 
+  // Roda JS dentro do painel, com a API e os ajudantes. Liberado pelo usuário em 27/11/2026 ("modo livre").
+  // O código é o corpo de uma função async: recebe P (premierepro), x (ajudantes da ponte), input e lib, e devolve
+  // o resultado (convertido para JSON simples). Ações que mudam o projeto continuam indo por x.tx(p, rótulo, () => [...]).
+  async function pr_runScript(input) {
+    const code = String(input.code || "");
+    if (!code.trim()) throw new PonteError(ERR.BAD_INPUT, "code é obrigatório: corpo de uma função async que recebe (P, x, input, lib).");
+    let fn;
+    try {
+      fn = new Function("P", "x", "input", "lib", `"use strict"; return (async () => {\n${code}\n})();`);
+    } catch (e) {
+      throw new PonteError(ERR.BAD_INPUT, `O script não compila: ${(e && e.message) || e}`);
+    }
+    const lib = { tempo: require("../lib/tempo"), cores: require("../lib/cores"), params: require("../lib/params"), PonteError, ERR, plano };
+    return { resultado: plano(await fn(P, x, input.input || {}, lib)) };
+  }
+
   async function pr_reloadPanel() {
     setTimeout(() => { try { window.location.reload(); } catch (e) { /* sem reload */ } }, 400);
     return { recarregando: true };
   }
 
-  return { pr_inspectApi, pr_reloadPanel };
+  return { pr_inspectApi, pr_runScript, pr_reloadPanel };
 };
