@@ -4,12 +4,10 @@
   "name": "Stocker Premiere",
   "version": "0.4.0",
   "main": "index.html",
-  "host": [
-    {
-      "app": "premierepro",
-      "minVersion": "26.3.0"
-    }
-  ],
+  "host": {
+    "app": "premierepro",
+    "minVersion": "26.3.0"
+  },
   "entrypoints": [
     {
       "type": "panel",
